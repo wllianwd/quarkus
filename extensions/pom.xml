@@ -105,6 +105,9 @@
 
         <!-- kogito -->
         <module>kogito</module>
+
+        <!-- Logging redis -->
+        <module>logging-redis</module>
     </modules>
 
 </project>
