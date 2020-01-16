@@ -1,8 +1,9 @@
 package io.quarkus.deployment.index;
 
-import static org.junit.Assert.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 public class ClassPathArtifactResolverTestCase {
 
@@ -11,17 +12,18 @@ public class ClassPathArtifactResolverTestCase {
 
     @Test
     public void testSingleGroupArtifact() throws Exception {
-        assertNotNull(RESOLVER.getArtifact("junit", "junit", null));
+        assertNotNull(RESOLVER.getArtifact("org.junit.jupiter", "junit-jupiter", null));
     }
 
     @Test
     public void testMultipleGroupArtifact() throws Exception {
-        assertNotNull(RESOLVER.getArtifact("javax.annotation", "javax.annotation-api", null));
+        assertNotNull(RESOLVER.getArtifact("jakarta.annotation", "jakarta.annotation-api", null));
     }
 
-    @Test(expected = RuntimeException.class)
+    @Test
     public void testClassifierNotFound() throws Exception {
-        assertNotNull(RESOLVER.getArtifact("junit", "junit", "unknow-classifier"));
+        assertThrows(RuntimeException.class,
+                () -> RESOLVER.getArtifact("org.junit.jupiter", "junit-jupiter", "unknow-classifier"));
     }
 
 }

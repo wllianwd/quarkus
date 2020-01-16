@@ -1,8 +1,8 @@
 package io.quarkus.it.elytron.oauth2;
 
-import io.quarkus.test.junit.SubstrateTest;
+import io.quarkus.test.junit.NativeImageTest;
 
-@SubstrateTest
-class ElytronOauth2ExtensionResourcITCase extends ElytronOauth2ExtensionResourceTestCase {
+@NativeImageTest
+class ElytronOauth2ExtensionResourceITCase extends ElytronOauth2ExtensionResourceTestCase {
 
 }

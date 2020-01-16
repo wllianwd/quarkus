@@ -13,11 +13,16 @@
 
     <artifactId>quarkus-amazon-dynamodb</artifactId>
     <name>Quarkus - Amazon DynamoDB - Runtime</name>
+    <description>A client for the Amazon DynamoDB datastore</description>
 
     <dependencies>
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-arc</artifactId>
         </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
@@ -30,10 +35,17 @@
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>netty-nio-client</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>url-connection-client</artifactId>
+            <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>apache-client</artifactId>
+            <optional>true</optional>
             <exclusions>
                 <exclusion>
                     <groupId>commons-logging</groupId>

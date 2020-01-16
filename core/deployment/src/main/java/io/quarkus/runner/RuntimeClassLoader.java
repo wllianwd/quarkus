@@ -8,13 +8,20 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
 import java.net.MalformedURLException;
+import java.net.URI;
 import java.net.URL;
 import java.net.URLConnection;
 import java.net.URLStreamHandler;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.CodeSource;
 import java.security.MessageDigest;
+import java.security.ProtectionDomain;
+import java.security.cert.Certificate;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
@@ -25,9 +32,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
+import java.util.stream.Stream;
 
 import org.jboss.logging.Logger;
 import org.objectweb.asm.ClassReader;
@@ -35,7 +43,6 @@ import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
 
 import io.quarkus.deployment.ClassOutput;
-import io.quarkus.deployment.QuarkusClassWriter;
 
 public class RuntimeClassLoader extends ClassLoader implements ClassOutput, TransformerTarget {
 
@@ -47,17 +54,20 @@ public class RuntimeClassLoader extends ClassLoader implements ClassOutput, Tran
     private final Map<String, byte[]> resources = new ConcurrentHashMap<>();
 
     private volatile Map<String, List<BiFunction<String, ClassVisitor, ClassVisitor>>> bytecodeTransformers = null;
+    private volatile ClassLoader transformerSafeClassLoader;
 
     private final List<Path> applicationClassDirectories;
 
     private final Map<String, Path> applicationClasses;
+
+    private final ProtectionDomain defaultProtectionDomain;
 
     private final Path frameworkClassesPath;
     private final Path transformerCache;
 
     private static final String DEBUG_CLASSES_DIR = System.getProperty("quarkus.debug.generated-classes-dir");
 
-    private final ConcurrentHashMap<String, Future<Class<?>>> loadingClasses = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, LoadingClass> loadingClasses = new ConcurrentHashMap<>();
 
     static {
         registerAsParallelCapable();
@@ -70,17 +80,22 @@ public class RuntimeClassLoader extends ClassLoader implements ClassOutput, Tran
             Map<String, Path> applicationClasses = new HashMap<>();
             for (Path i : applicationClassesDirectories) {
                 if (Files.isDirectory(i)) {
-                    Files.walk(i).forEach(new Consumer<Path>() {
-                        @Override
-                        public void accept(Path path) {
-                            if (path.toString().endsWith(".class")) {
-                                applicationClasses.put(i.relativize(path).toString().replace('\\', '/'), path);
+                    try (Stream<Path> fileTreeElements = Files.walk(i)) {
+                        fileTreeElements.forEach(new Consumer<Path>() {
+                            @Override
+                            public void accept(Path path) {
+                                if (path.toString().endsWith(".class")) {
+                                    applicationClasses.put(i.relativize(path).toString().replace('\\', '/'), path);
+                                }
                             }
-                        }
-                    });
+                        });
+                    }
                 }
             }
+
+            this.defaultProtectionDomain = createDefaultProtectionDomain(applicationClassesDirectories.get(0));
             this.applicationClasses = applicationClasses;
+
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -88,7 +103,7 @@ public class RuntimeClassLoader extends ClassLoader implements ClassOutput, Tran
         this.frameworkClassesPath = frameworkClassesDirectory;
         if (!Files.isDirectory(frameworkClassesDirectory)) {
             throw new IllegalStateException(
-                    "Test classes directory path does not point to an existsing directory: " + frameworkClassesPath);
+                    "Test classes directory path does not point to an existing directory: " + frameworkClassesPath);
         }
         this.transformerCache = transformerCache;
     }
@@ -177,7 +192,7 @@ public class RuntimeClassLoader extends ClassLoader implements ClassOutput, Tran
         if (bytes != null) {
             try {
                 definePackage(name);
-                return defineClass(name, bytes, 0, bytes.length);
+                return defineClass(name, bytes, 0, bytes.length, defaultProtectionDomain);
             } catch (Error e) {
                 //potential race conditions if another thread is loading the same class
                 existing = findLoadedClass(name);
@@ -191,37 +206,35 @@ public class RuntimeClassLoader extends ClassLoader implements ClassOutput, Tran
         Path classLoc = getClassInApplicationClassPaths(name);
 
         if (classLoc != null) {
-            CompletableFuture<Class<?>> res = new CompletableFuture<>();
-            Future<Class<?>> loadingClass = loadingClasses.putIfAbsent(name, res);
+            LoadingClass res = new LoadingClass(new CompletableFuture<>(), Thread.currentThread());
+            LoadingClass loadingClass = loadingClasses.putIfAbsent(name, res);
             if (loadingClass != null) {
+                if (loadingClass.initiator == Thread.currentThread()) {
+                    throw new LinkageError(
+                            "Load caused recursion in RuntimeClassLoader, this is a Quarkus bug loading class: " + name);
+                }
                 try {
-                    return loadingClass.get();
+                    return loadingClass.value.get();
                 } catch (Exception e) {
                     throw new ClassNotFoundException("Failed to load " + name, e);
                 }
             }
             try {
-                byte[] buf = new byte[1024];
-                int r;
-                ByteArrayOutputStream out = new ByteArrayOutputStream();
-                try (FileInputStream in = new FileInputStream(classLoc.toFile())) {
-                    while ((r = in.read(buf)) > 0) {
-                        out.write(buf, 0, r);
-                    }
+                try {
+                    bytes = Files.readAllBytes(classLoc);
                 } catch (IOException e) {
                     throw new ClassNotFoundException("Failed to load class", e);
                 }
-                bytes = out.toByteArray();
                 bytes = handleTransform(name, bytes);
                 definePackage(name);
-                Class<?> clazz = defineClass(name, bytes, 0, bytes.length);
-                res.complete(clazz);
+                Class<?> clazz = defineClass(name, bytes, 0, bytes.length, defaultProtectionDomain);
+                res.value.complete(clazz);
                 return clazz;
             } catch (RuntimeException e) {
-                res.completeExceptionally(e);
+                res.value.completeExceptionally(e);
                 throw e;
             } catch (Throwable e) {
-                res.completeExceptionally(e);
+                res.value.completeExceptionally(e);
                 throw e;
             }
         }
@@ -241,9 +254,10 @@ public class RuntimeClassLoader extends ClassLoader implements ClassOutput, Tran
                         debugPath.mkdir();
                     }
                     File classFile = new File(debugPath, dotName + ".class");
-                    FileOutputStream classWriter = new FileOutputStream(classFile);
-                    classWriter.write(data);
-                    classWriter.close();
+                    classFile.getParentFile().mkdirs();
+                    try (FileOutputStream classWriter = new FileOutputStream(classFile)) {
+                        classWriter.write(data);
+                    }
                     log.infof("Wrote %s", classFile.getAbsolutePath());
                 } catch (Throwable t) {
                     t.printStackTrace();
@@ -269,13 +283,76 @@ public class RuntimeClassLoader extends ClassLoader implements ClassOutput, Tran
     }
 
     @Override
+    public Writer writeSource(final String className) {
+        if (DEBUG_CLASSES_DIR != null) {
+            try {
+                File debugPath = new File(DEBUG_CLASSES_DIR);
+                if (!debugPath.exists()) {
+                    debugPath.mkdir();
+                }
+                File classFile = new File(debugPath, className + ".zig");
+                classFile.getParentFile().mkdirs();
+                log.infof("Wrote %s", classFile.getAbsolutePath());
+                return new OutputStreamWriter(new FileOutputStream(classFile), StandardCharsets.UTF_8);
+            } catch (Throwable t) {
+                t.printStackTrace();
+            }
+        }
+        return ClassOutput.super.writeSource(className);
+    }
+
+    @Override
     public void setTransformers(Map<String, List<BiFunction<String, ClassVisitor, ClassVisitor>>> functions) {
         this.bytecodeTransformers = functions;
+        this.transformerSafeClassLoader = Thread.currentThread().getContextClassLoader();
+    }
+
+    public void setApplicationArchives(List<Path> archives) {
+        //we also need to be able to transform application archives
+        //this is not great but I can't really see a better solution
+        if (bytecodeTransformers == null) {
+            return;
+        }
+        try {
+            for (Path root : archives) {
+                Map<String, Path> classes = new HashMap<>();
+                AtomicBoolean transform = new AtomicBoolean();
+                try (Stream<Path> fileTreeElements = Files.walk(root)) {
+                    fileTreeElements.forEach(new Consumer<Path>() {
+                        @Override
+                        public void accept(Path path) {
+                            if (path.toString().endsWith(".class")) {
+                                String key = root.relativize(path).toString().replace('\\', '/');
+                                classes.put(key, path);
+                                if (bytecodeTransformers
+                                        .containsKey(key.substring(0, key.length() - ".class".length()).replace("/", "."))) {
+                                    transform.set(true);
+                                }
+                            }
+                        }
+                    });
+                }
+                if (transform.get()) {
+                    applicationClasses.putAll(classes);
+                }
+            }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
     public void writeResource(String name, byte[] data) throws IOException {
         resources.put(name, data);
+    }
+
+    /**
+     * This is needed in order to easily inject classes into the classloader
+     * without having to resort to tricks (that don't work that well on new JDKs)
+     * See {@link io.quarkus.deployment.proxy.InjectIntoClassloaderClassOutput}
+     */
+    public Class<?> visibleDefineClass(String name, byte[] b, int off, int len) throws ClassFormatError {
+        return super.defineClass(name, b, off, len, defaultProtectionDomain);
     }
 
     private void definePackage(String name) {
@@ -349,7 +426,12 @@ public class RuntimeClassLoader extends ClassLoader implements ClassOutput, Tran
         }
 
         ClassReader cr = new ClassReader(bytes);
-        ClassWriter writer = new QuarkusClassWriter(cr, ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
+        ClassWriter writer = new ClassWriter(cr, ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS) {
+            @Override
+            protected ClassLoader getClassLoader() {
+                return transformerSafeClassLoader;
+            }
+        };
         ClassVisitor visitor = writer;
         for (BiFunction<String, ClassVisitor, ClassVisitor> i : transformers) {
             visitor = i.apply(name, visitor);
@@ -386,7 +468,13 @@ public class RuntimeClassLoader extends ClassLoader implements ClassOutput, Tran
 
     private URL findApplicationResource(String name) {
         Path resourcePath = null;
-
+        // Resource names are always separated by the "/" character.
+        // Here we are trying to resolve those resources using a filesystem
+        // Path, so we replace the "/" character with the filesystem
+        // specific separator before resolving
+        if (File.separatorChar != '/') {
+            name = name.replace('/', File.separatorChar);
+        }
         for (Path i : applicationClassDirectories) {
             resourcePath = i.resolve(name);
             if (Files.exists(resourcePath)) {
@@ -394,8 +482,7 @@ public class RuntimeClassLoader extends ClassLoader implements ClassOutput, Tran
             }
         }
         try {
-            return resourcePath != null && Files.exists(resourcePath) ? resourcePath.toUri()
-                    .toURL() : null;
+            return resourcePath != null && Files.exists(resourcePath) ? resourcePath.toUri().toURL() : null;
         } catch (MalformedURLException e) {
             throw new RuntimeException(e);
         }
@@ -442,5 +529,30 @@ public class RuntimeClassLoader extends ClassLoader implements ClassOutput, Tran
             }
         }
         return null;
+    }
+
+    private ProtectionDomain createDefaultProtectionDomain(Path applicationClasspath) {
+        URL url = null;
+        if (applicationClasspath != null) {
+            try {
+                URI uri = applicationClasspath.toUri();
+                url = uri.toURL();
+            } catch (MalformedURLException e) {
+                log.error("URL codeSource location for path " + applicationClasspath + " could not be created.", e);
+            }
+        }
+        CodeSource codesource = new CodeSource(url, (Certificate[]) null);
+        ProtectionDomain protectionDomain = new ProtectionDomain(codesource, null, this, null);
+        return protectionDomain;
+    }
+
+    static final class LoadingClass {
+        final CompletableFuture<Class<?>> value;
+        final Thread initiator;
+
+        LoadingClass(CompletableFuture<Class<?>> value, Thread initiator) {
+            this.value = value;
+            this.initiator = initiator;
+        }
     }
 }

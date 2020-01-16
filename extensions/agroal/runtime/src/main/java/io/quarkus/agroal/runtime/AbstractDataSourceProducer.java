@@ -1,7 +1,8 @@
 package io.quarkus.agroal.runtime;
 
+import java.sql.Connection;
 import java.sql.Driver;
-import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -16,6 +17,7 @@ import javax.transaction.TransactionSynchronizationRegistry;
 import org.jboss.logging.Logger;
 
 import io.agroal.api.AgroalDataSource;
+import io.agroal.api.configuration.AgroalConnectionPoolConfiguration.ConnectionValidator;
 import io.agroal.api.configuration.supplier.AgroalConnectionFactoryConfigurationSupplier;
 import io.agroal.api.configuration.supplier.AgroalConnectionPoolConfigurationSupplier;
 import io.agroal.api.configuration.supplier.AgroalDataSourceConfigurationSupplier;
@@ -23,6 +25,9 @@ import io.agroal.api.security.NamePrincipal;
 import io.agroal.api.security.SimplePassword;
 import io.agroal.api.transaction.TransactionIntegration;
 import io.agroal.narayana.NarayanaTransactionIntegration;
+import io.quarkus.arc.Arc;
+import io.quarkus.arc.ArcContainer;
+import io.quarkus.vault.CredentialsProvider;
 
 public abstract class AbstractDataSourceProducer {
 
@@ -62,7 +67,8 @@ public abstract class AbstractDataSourceProducer {
 
     public AgroalDataSource createDataSource(String dataSourceName,
             DataSourceBuildTimeConfig dataSourceBuildTimeConfig,
-            Optional<DataSourceRuntimeConfig> dataSourceRuntimeConfigOptional) throws SQLException {
+            Optional<DataSourceRuntimeConfig> dataSourceRuntimeConfigOptional,
+            boolean mpMetricsPresent) {
         if (!dataSourceRuntimeConfigOptional.isPresent() || !dataSourceRuntimeConfigOptional.get().url.isPresent()) {
             log.warn("Datasource " + dataSourceName + " not started: driver and/or url are not defined.");
             return null;
@@ -80,7 +86,10 @@ public abstract class AbstractDataSourceProducer {
 
         String url = dataSourceRuntimeConfig.url.get();
 
-        if (dataSourceBuildTimeConfig.xa) {
+        //TODO should we do such checks at build time only? All these are currently defined at build - but it could change
+        //depending on if and how we could do Driver auto-detection.
+        final io.quarkus.agroal.runtime.TransactionIntegration transactionIntegration = dataSourceBuildTimeConfig.transactions;
+        if (transactionIntegration == io.quarkus.agroal.runtime.TransactionIntegration.XA) {
             if (!XADataSource.class.isAssignableFrom(driver)) {
                 throw new RuntimeException("Driver is not an XA dataSource and XA has been configured");
             }
@@ -97,6 +106,7 @@ public abstract class AbstractDataSourceProducer {
                 .connectionFactoryConfiguration();
         agroalConnectionFactoryConfigurationSupplier.jdbcUrl(url);
         agroalConnectionFactoryConfigurationSupplier.connectionProviderClass(driver);
+        agroalConnectionFactoryConfigurationSupplier.trackJdbcResources(dataSourceRuntimeConfig.detectStatementLeaks);
 
         if (dataSourceRuntimeConfig.transactionIsolationLevel.isPresent()) {
             agroalConnectionFactoryConfigurationSupplier
@@ -104,12 +114,24 @@ public abstract class AbstractDataSourceProducer {
                             dataSourceRuntimeConfig.transactionIsolationLevel.get());
         }
 
-        TransactionIntegration txIntegration = new NarayanaTransactionIntegration(transactionManager,
-                transactionSynchronizationRegistry);
-        poolConfiguration.transactionIntegration(txIntegration);
+        if (transactionIntegration != io.quarkus.agroal.runtime.TransactionIntegration.DISABLED) {
+            TransactionIntegration txIntegration = new NarayanaTransactionIntegration(transactionManager,
+                    transactionSynchronizationRegistry);
+            poolConfiguration.transactionIntegration(txIntegration);
+        }
+
+        // New connection SQL
+        if (dataSourceRuntimeConfig.newConnectionSql.isPresent()) {
+            agroalConnectionFactoryConfigurationSupplier.initialSql(dataSourceRuntimeConfig.newConnectionSql.get());
+        }
 
         // metrics
-        dataSourceConfiguration.metricsEnabled(dataSourceRuntimeConfig.enableMetrics);
+        if (dataSourceBuildTimeConfig.enableMetrics.isPresent()) {
+            dataSourceConfiguration.metricsEnabled(dataSourceBuildTimeConfig.enableMetrics.get());
+        } else {
+            // if the enable-metrics property is unspecified, treat it as true if MP Metrics are being exposed
+            dataSourceConfiguration.metricsEnabled(buildTimeConfig.metricsEnabled && mpMetricsPresent);
+        }
 
         // Authentication
         if (dataSourceRuntimeConfig.username.isPresent()) {
@@ -121,6 +143,23 @@ public abstract class AbstractDataSourceProducer {
                     .credential(new SimplePassword(dataSourceRuntimeConfig.password.get()));
         }
 
+        // Vault credentials provider
+        if (dataSourceRuntimeConfig.credentialsProvider.isPresent()) {
+            ArcContainer container = Arc.container();
+            String type = dataSourceRuntimeConfig.credentialsProviderType.orElse(null);
+            CredentialsProvider credentialsProvider = type != null
+                    ? (CredentialsProvider) container.instance(type).get()
+                    : container.instance(CredentialsProvider.class).get();
+
+            if (credentialsProvider == null) {
+                throw new RuntimeException("unable to find credentials provider of type " + (type == null ? "default" : type));
+            }
+
+            String name = dataSourceRuntimeConfig.credentialsProvider.get();
+            agroalConnectionFactoryConfigurationSupplier
+                    .credential(new AgroalVaultCredentialsProviderPassword(name, credentialsProvider));
+        }
+
         // Pool size configuration:
         poolConfiguration.minSize(dataSourceRuntimeConfig.minSize);
         poolConfiguration.maxSize(dataSourceRuntimeConfig.maxSize);
@@ -129,11 +168,28 @@ public abstract class AbstractDataSourceProducer {
         }
 
         // Connection management
+        poolConfiguration.connectionValidator(ConnectionValidator.defaultValidator());
         if (dataSourceRuntimeConfig.acquisitionTimeout.isPresent()) {
             poolConfiguration.acquisitionTimeout(dataSourceRuntimeConfig.acquisitionTimeout.get());
         }
         if (dataSourceRuntimeConfig.backgroundValidationInterval.isPresent()) {
             poolConfiguration.validationTimeout(dataSourceRuntimeConfig.backgroundValidationInterval.get());
+        }
+        if (dataSourceRuntimeConfig.validationQuerySql.isPresent()) {
+            String validationQuery = dataSourceRuntimeConfig.validationQuerySql.get();
+            poolConfiguration.connectionValidator(new ConnectionValidator() {
+
+                @Override
+                public boolean isValid(Connection connection) {
+                    try (Statement stmt = connection.createStatement()) {
+                        stmt.execute(validationQuery);
+                        return true;
+                    } catch (Exception e) {
+                        log.warn("Connection validation failed", e);
+                    }
+                    return false;
+                }
+            });
         }
         if (dataSourceRuntimeConfig.idleRemovalInterval.isPresent()) {
             poolConfiguration.reapTimeout(dataSourceRuntimeConfig.idleRemovalInterval.get());
@@ -160,9 +216,9 @@ public abstract class AbstractDataSourceProducer {
         }
 
         // Explicit reference to bypass reflection need of the ServiceLoader used by AgroalDataSource#from
-        AgroalDataSource dataSource = new io.agroal.pool.DataSource(dataSourceConfiguration.get());
-
-        log.debug("Started data source " + dataSourceName + " connected to " + url);
+        AgroalDataSource dataSource = new io.agroal.pool.DataSource(dataSourceConfiguration.get(),
+                new AgroalEventLoggingListener(dataSourceName));
+        log.debugv("Started data source {0} connected to {1}", dataSource, url);
 
         this.dataSources.add(dataSource);
 

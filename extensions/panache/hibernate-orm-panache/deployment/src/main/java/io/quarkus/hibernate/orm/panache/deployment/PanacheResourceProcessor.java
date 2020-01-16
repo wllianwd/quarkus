@@ -19,6 +19,7 @@ import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.builditem.ApplicationIndexBuildItem;
 import io.quarkus.deployment.builditem.BytecodeTransformerBuildItem;
 import io.quarkus.deployment.builditem.CombinedIndexBuildItem;
+import io.quarkus.deployment.builditem.FeatureBuildItem;
 import io.quarkus.hibernate.orm.deployment.AdditionalJpaModelBuildItem;
 import io.quarkus.hibernate.orm.deployment.HibernateEnhancersRegisteredBuildItem;
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
@@ -29,6 +30,7 @@ import io.quarkus.panache.common.deployment.EntityField;
 import io.quarkus.panache.common.deployment.EntityModel;
 import io.quarkus.panache.common.deployment.MetamodelInfo;
 import io.quarkus.panache.common.deployment.PanacheFieldAccessEnhancer;
+import io.quarkus.panache.common.deployment.PanacheRepositoryEnhancer;
 
 public final class PanacheResourceProcessor {
 
@@ -39,6 +41,11 @@ public final class PanacheResourceProcessor {
 
     private static final Set<DotName> UNREMOVABLE_BEANS = Collections.singleton(
             DotName.createSimple(EntityManager.class.getName()));
+
+    @BuildStep
+    FeatureBuildItem featureBuildItem() {
+        return new FeatureBuildItem(FeatureBuildItem.HIBERNATE_ORM_PANACHE);
+    }
 
     @BuildStep
     List<AdditionalJpaModelBuildItem> produceModel() {
@@ -76,9 +83,13 @@ public final class PanacheResourceProcessor {
             // Skip PanacheRepository
             if (classInfo.name().equals(DOTNAME_PANACHE_REPOSITORY))
                 continue;
+            if (PanacheRepositoryEnhancer.skipRepository(classInfo))
+                continue;
             daoClasses.add(classInfo.name().toString());
         }
         for (ClassInfo classInfo : index.getIndex().getAllKnownImplementors(DOTNAME_PANACHE_REPOSITORY)) {
+            if (PanacheRepositoryEnhancer.skipRepository(classInfo))
+                continue;
             daoClasses.add(classInfo.name().toString());
         }
         for (String daoClass : daoClasses) {
@@ -89,6 +100,7 @@ public final class PanacheResourceProcessor {
         Set<String> modelClasses = new HashSet<>();
         // Note that we do this in two passes because for some reason Jandex does not give us subtypes
         // of PanacheEntity if we ask for subtypes of PanacheEntityBase
+        // NOTE: we don't skip abstract/generic entities because they still need accessors
         for (ClassInfo classInfo : index.getIndex().getAllKnownSubclasses(DOTNAME_PANACHE_ENTITY_BASE)) {
             // FIXME: should we really skip PanacheEntity or all MappedSuperClass?
             if (classInfo.name().equals(DOTNAME_PANACHE_ENTITY))
@@ -115,5 +127,4 @@ public final class PanacheResourceProcessor {
             }
         }
     }
-
 }

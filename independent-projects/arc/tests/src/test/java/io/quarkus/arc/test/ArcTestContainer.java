@@ -12,6 +12,7 @@ import io.quarkus.arc.processor.BeanRegistrar;
 import io.quarkus.arc.processor.ContextRegistrar;
 import io.quarkus.arc.processor.InjectionPointsTransformer;
 import io.quarkus.arc.processor.InterceptorBindingRegistrar;
+import io.quarkus.arc.processor.ObserverTransformer;
 import io.quarkus.arc.processor.ResourceOutput;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -32,11 +33,25 @@ import java.util.stream.Collectors;
 import org.jboss.jandex.DotName;
 import org.jboss.jandex.Index;
 import org.jboss.jandex.Indexer;
-import org.junit.rules.TestRule;
-import org.junit.runner.Description;
-import org.junit.runners.model.Statement;
+import org.junit.jupiter.api.extension.AfterEachCallback;
+import org.junit.jupiter.api.extension.BeforeEachCallback;
+import org.junit.jupiter.api.extension.ExtensionContext;
 
-public class ArcTestContainer implements TestRule {
+/**
+ * Junit5 extension for Arc bootstrap/shutdown.
+ * Designed to be used via {code @RegisterExtension} fields in tests.
+ *
+ * It bootstraps Arc before each test method and shuts down afterwards.
+ * Leverages root {@code ExtensionContext.Store} to store and retrieve some variables.
+ */
+public class ArcTestContainer implements BeforeEachCallback, AfterEachCallback {
+
+    // our specific namespace for storing anything into ExtensionContext.Store
+    private static ExtensionContext.Namespace EXTENSION_NAMESPACE;
+
+    // Strings used as keys in ExtensionContext.Store
+    private static final String KEY_OLD_TCCL = "arcExtensionOldTccl";
+    private static final String KEY_TEST_CLASSLOADER = "arcExtensionTestClassLoader";
 
     private static final String TARGET_TEST_CLASSES = "target/test-classes";
 
@@ -54,6 +69,7 @@ public class ArcTestContainer implements TestRule {
         private final List<InterceptorBindingRegistrar> interceptorBindingRegistrars;
         private final List<AnnotationsTransformer> annotationsTransformers;
         private final List<InjectionPointsTransformer> injectionsPointsTransformers;
+        private final List<ObserverTransformer> observerTransformers;
         private final List<BeanDeploymentValidator> beanDeploymentValidators;
         private boolean shouldFail = false;
         private boolean removeUnusedBeans = false;
@@ -68,6 +84,7 @@ public class ArcTestContainer implements TestRule {
             interceptorBindingRegistrars = new ArrayList<>();
             annotationsTransformers = new ArrayList<>();
             injectionsPointsTransformers = new ArrayList<>();
+            observerTransformers = new ArrayList<>();
             beanDeploymentValidators = new ArrayList<>();
             exclusions = new ArrayList<>();
         }
@@ -108,6 +125,11 @@ public class ArcTestContainer implements TestRule {
             return this;
         }
 
+        public Builder observerTransformers(ObserverTransformer... transformers) {
+            Collections.addAll(this.observerTransformers, transformers);
+            return this;
+        }
+
         public Builder interceptorBindingRegistrars(InterceptorBindingRegistrar... registrars) {
             Collections.addAll(this.interceptorBindingRegistrars, registrars);
             return this;
@@ -136,6 +158,7 @@ public class ArcTestContainer implements TestRule {
         public ArcTestContainer build() {
             return new ArcTestContainer(resourceReferenceProviders, beanClasses, resourceAnnotations, beanRegistrars,
                     contextRegistrars, interceptorBindingRegistrars, annotationsTransformers, injectionsPointsTransformers,
+                    observerTransformers,
                     beanDeploymentValidators, shouldFail, removeUnusedBeans, exclusions);
         }
 
@@ -157,6 +180,8 @@ public class ArcTestContainer implements TestRule {
 
     private final List<InjectionPointsTransformer> injectionPointsTransformers;
 
+    private final List<ObserverTransformer> observerTransformers;
+
     private final List<BeanDeploymentValidator> beanDeploymentValidators;
 
     private final boolean shouldFail;
@@ -165,11 +190,9 @@ public class ArcTestContainer implements TestRule {
     private final boolean removeUnusedBeans;
     private final List<Predicate<BeanInfo>> exclusions;
 
-    private URLClassLoader testClassLoader;
-
     public ArcTestContainer(Class<?>... beanClasses) {
         this(Collections.emptyList(), Arrays.asList(beanClasses), Collections.emptyList(), Collections.emptyList(),
-                Collections.emptyList(), Collections.emptyList(),
+                Collections.emptyList(), Collections.emptyList(), Collections.emptyList(),
                 Collections.emptyList(), Collections.emptyList(), Collections.emptyList(), false, false,
                 Collections.emptyList());
     }
@@ -179,6 +202,7 @@ public class ArcTestContainer implements TestRule {
             List<BeanRegistrar> beanRegistrars, List<ContextRegistrar> contextRegistrars,
             List<InterceptorBindingRegistrar> bindingRegistrars,
             List<AnnotationsTransformer> annotationsTransformers, List<InjectionPointsTransformer> ipTransformers,
+            List<ObserverTransformer> observerTransformers,
             List<BeanDeploymentValidator> beanDeploymentValidators, boolean shouldFail, boolean removeUnusedBeans,
             List<Predicate<BeanInfo>> exclusions) {
         this.resourceReferenceProviders = resourceReferenceProviders;
@@ -189,6 +213,7 @@ public class ArcTestContainer implements TestRule {
         this.bindingRegistrars = bindingRegistrars;
         this.annotationsTransformers = annotationsTransformers;
         this.injectionPointsTransformers = ipTransformers;
+        this.observerTransformers = observerTransformers;
         this.beanDeploymentValidators = beanDeploymentValidators;
         this.buildFailure = new AtomicReference<Throwable>(null);
         this.shouldFail = shouldFail;
@@ -196,29 +221,40 @@ public class ArcTestContainer implements TestRule {
         this.exclusions = exclusions;
     }
 
+    // this is where we start Arc, we operate on a per-method basis
     @Override
-    public Statement apply(Statement base, Description description) {
-        return new Statement() {
-            @Override
-            public void evaluate() throws Throwable {
-                ClassLoader oldTccl = init(description.getTestClass());
-                try {
-                    base.evaluate();
-                } finally {
-                    Thread.currentThread().setContextClassLoader(oldTccl);
-                    if (testClassLoader != null) {
-                        try {
-                            testClassLoader.close();
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
-                    }
-                    shutdown();
-                }
-            }
-        };
+    public void beforeEach(ExtensionContext extensionContext) throws Exception {
+        getRootExtensionStore(extensionContext).put(KEY_OLD_TCCL, init(extensionContext));
     }
 
+    // this is where we shutdown Arc
+    @Override
+    public void afterEach(ExtensionContext extensionContext) throws Exception {
+        ClassLoader oldTccl = getRootExtensionStore(extensionContext).get(KEY_OLD_TCCL, ClassLoader.class);
+        Thread.currentThread().setContextClassLoader(oldTccl);
+
+        URLClassLoader testClassLoader = getRootExtensionStore(extensionContext).get(KEY_TEST_CLASSLOADER,
+                URLClassLoader.class);
+        if (testClassLoader != null) {
+            try {
+                testClassLoader.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+        shutdown();
+    }
+
+    private static synchronized ExtensionContext.Store getRootExtensionStore(ExtensionContext context) {
+        if (EXTENSION_NAMESPACE == null) {
+            EXTENSION_NAMESPACE = ExtensionContext.Namespace.create(ArcTestContainer.class);
+        }
+        return context.getRoot().getStore(EXTENSION_NAMESPACE);
+    }
+
+    /**
+     * In case the test is expected to fail, this method will return a {@link Throwable} that caused it.
+     */
     public Throwable getFailure() {
         return buildFailure.get();
     }
@@ -227,7 +263,9 @@ public class ArcTestContainer implements TestRule {
         Arc.shutdown();
     }
 
-    private ClassLoader init(Class<?> testClass) {
+    private ClassLoader init(ExtensionContext context) {
+        // retrieve test class from extension context
+        Class<?> testClass = context.getRequiredTestClass();
 
         // Make sure Arc is down
         Arc.shutdown();
@@ -291,6 +329,9 @@ public class ArcTestContainer implements TestRule {
             for (InjectionPointsTransformer injectionPointsTransformer : injectionPointsTransformers) {
                 beanProcessorBuilder.addInjectionPointTransformer(injectionPointsTransformer);
             }
+            for (ObserverTransformer observerTransformer : observerTransformers) {
+                beanProcessorBuilder.addObserverTransformer(observerTransformer);
+            }
             for (BeanDeploymentValidator validator : beanDeploymentValidators) {
                 beanProcessorBuilder.addBeanDeploymentValidator(validator);
             }
@@ -330,7 +371,7 @@ public class ArcTestContainer implements TestRule {
                 throw new IllegalStateException("Error generating resources", e);
             }
 
-            testClassLoader = new URLClassLoader(new URL[] {}, old) {
+            URLClassLoader testClassLoader = new URLClassLoader(new URL[] {}, old) {
                 @Override
                 public Enumeration<URL> getResources(String name) throws IOException {
                     if (("META-INF/services/" + ComponentsProvider.class.getName()).equals(name)) {
@@ -347,6 +388,9 @@ public class ArcTestContainer implements TestRule {
             };
             Thread.currentThread()
                     .setContextClassLoader(testClassLoader);
+
+            // store the test class loader into extension store
+            getRootExtensionStore(context).put(KEY_TEST_CLASSLOADER, testClassLoader);
 
             // Now we are ready to initialize Arc
             Arc.initialize();

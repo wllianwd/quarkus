@@ -10,12 +10,18 @@ import io.quarkus.vertx.web.Route.Routes;
 import io.vertx.core.Handler;
 import io.vertx.core.http.HttpMethod;
 import io.vertx.ext.web.Router;
-import io.vertx.ext.web.RoutingContext;
 
 /**
- * Annotation used to configure a {@link io.quarkus.vertx.web.Route} in a declarative way.
+ * Annotation used to configure reactive routes in a declarative way.
  * <p>
- * The target business method must return {@code void} and accept exacly one argument of type {@link RoutingContext}.
+ * The target business method must return {@code void} and accept exactly one argument. must return {@code void} and accept
+ * exactly one argument. The type of the argument can be {@link io.vertx.ext.web.RoutingContext},
+ * {@link io.vertx.reactivex.ext.web.RoutingContext} or {@link io.quarkus.vertx.web.RoutingExchange}.
+ * <p>
+ * If both {@link #path()} and {@link #regex()} are set the regular expression is used for matching.
+ * <p>
+ * If neither {@link #path()} nor {@link #regex()} is set the route will match a path derived from the name of the
+ * method. This is done by de-camel-casing the name and then joining the segments with hyphens.
  */
 @Repeatable(Routes.class)
 @Retention(RetentionPolicy.RUNTIME)
@@ -38,7 +44,7 @@ public @interface Route {
 
     /**
      *
-     * @see io.quarkus.vertx.web.Route#method(HttpMethod)
+     * @see io.vertx.ext.web.Route#methods()
      * @return the HTTP methods
      */
     HttpMethod[] methods() default {};
@@ -50,22 +56,24 @@ public @interface Route {
     HandlerType type() default HandlerType.NORMAL;
 
     /**
-     * If set to {@link Integer#MIN_VALUE} the order of the route is not modified.
+     * If set to a positive number, it indicates the place of the route in the chain.
      * 
-     * @see io.quarkus.vertx.web.Route#order(int)
+     * @see io.vertx.ext.web.Route#order()
      */
-    int order() default Integer.MIN_VALUE;
+    int order() default 0;
 
     /**
-     *
-     * @see io.quarkus.vertx.web.Route#produces(String)
+     * Used for content-based routing.
+     * 
+     * @see io.vertx.ext.web.Route#produces(String)
      * @return the produced content types
      */
     String[] produces() default {};
 
     /**
+     * Used for content-based routing.
      *
-     * @see io.quarkus.vertx.web.Route#consumes(String)
+     * @see io.vertx.ext.web.Route#consumes(String)
      * @return the consumed content types
      */
     String[] consumes() default {};

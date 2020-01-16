@@ -29,13 +29,20 @@ import io.quarkus.it.hibernate.validator.injection.InjectedConstraintValidatorCo
 import io.quarkus.it.hibernate.validator.injection.MyService;
 
 @Path("/hibernate-validator/test")
-public class HibernateValidatorTestResource {
+public class HibernateValidatorTestResource
+        implements HibernateValidatorTestResourceGenericInterface<Integer> {
 
     @Inject
     Validator validator;
 
     @Inject
     GreetingService greetingService;
+
+    @Inject
+    EnhancedGreetingService enhancedGreetingService;
+
+    @Inject
+    ZipCodeService zipCodeResource;
 
     @GET
     @Path("/basic-features")
@@ -105,6 +112,14 @@ public class HibernateValidatorTestResource {
     }
 
     @GET
+    @Path("/rest-end-point-generic-method-validation/{id}")
+    @Produces(MediaType.TEXT_PLAIN)
+    @Override
+    public Integer testRestEndpointGenericMethodValidation(@Digits(integer = 5, fraction = 0) @PathParam("id") Integer id) {
+        return id;
+    }
+
+    @GET
     @Path("/no-produces/{id}/")
     public Response noProduces(@Digits(integer = 5, fraction = 0) @PathParam("id") String id) {
         return Response.accepted().build();
@@ -119,6 +134,44 @@ public class HibernateValidatorTestResource {
         result.append(formatViolations(validator.validate(new BeanWithInjectedConstraintValidatorConstraint(MyService.VALID))));
 
         result.append(formatViolations(validator.validate(new BeanWithInjectedConstraintValidatorConstraint("Invalid value"))));
+
+        return result.build();
+    }
+
+    @GET
+    @Path("/test-inherited-implements-constraints")
+    @Produces(MediaType.TEXT_PLAIN)
+    public String testInheritedImplementsConstraints() {
+        ResultBuilder result = new ResultBuilder();
+
+        zipCodeResource.echoZipCode("12345");
+
+        result.append(formatViolations(Collections.emptySet()));
+
+        try {
+            zipCodeResource.echoZipCode("1234");
+        } catch (ConstraintViolationException e) {
+            result.append(formatViolations(e.getConstraintViolations()));
+        }
+
+        return result.build();
+    }
+
+    @GET
+    @Path("/test-inherited-extends-constraints")
+    @Produces(MediaType.TEXT_PLAIN)
+    public String testInheritedExtendsConstraints() {
+        ResultBuilder result = new ResultBuilder();
+
+        enhancedGreetingService.greeting("test");
+
+        result.append(formatViolations(Collections.emptySet()));
+
+        try {
+            enhancedGreetingService.greeting(null);
+        } catch (ConstraintViolationException e) {
+            result.append(formatViolations(e.getConstraintViolations()));
+        }
 
         return result.build();
     }

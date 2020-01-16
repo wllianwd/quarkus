@@ -6,7 +6,7 @@
     <parent>
         <groupId>org.jboss</groupId>
         <artifactId>jboss-parent</artifactId>
-        <version>35</version>
+        <version>36</version>
     </parent>
 
     <groupId>io.quarkus</groupId>
@@ -39,6 +39,13 @@
     </properties>
 
     <modules>
+        <!-- External projects -->
+        <module>independent-projects/arc</module>
+        <module>independent-projects/bootstrap</module>
+        <module>independent-projects/tools</module>
+        <module>independent-projects/qute</module>
+
+        <!-- BOMs and parent POM -->
         <module>bom/runtime</module>
         <module>bom/deployment</module>
         <module>build-parent</module>
@@ -50,21 +57,17 @@
         <!-- Extensions -->
         <module>extensions</module>
 
+        <!-- Devtools (Maven, cli, gradle) -->
+        <!-- MUST BE BUILT AFTER EXTENSIONS BUT BEFORE IT -->
+        <!-- the tools are generating the JSON descriptor for the BOM -->
+        <!-- relying on the fact that the extension descriptor, generated as part of an extension build, is available -->
+        <module>devtools</module>
+
         <!-- Integration Tests -->
         <module>integration-tests</module>
 
-        <!-- External projects -->
-        <module>independent-projects/arc</module>
-        <module>independent-projects/bootstrap</module>
-
-        <!-- Devtools (Maven, cli, gradle) -->
-        <module>devtools</module>
-
         <!-- Misc. -->
         <module>docs</module>
-
-        <!-- Do not add modules after war-launcher. JVM state will fail CI -->
-        <module>war-launcher</module>
     </modules>
 
     <repositories>
@@ -99,7 +102,7 @@
                         <configuration>
                             <nexusUrl>https://oss.sonatype.org/</nexusUrl>
                             <serverId>ossrh</serverId>
-                            <autoReleaseAfterClose>true</autoReleaseAfterClose>
+                            <autoReleaseAfterClose>false</autoReleaseAfterClose>
                             <keepStagingRepositoryOnCloseRuleFailure>true</keepStagingRepositoryOnCloseRuleFailure>
                         </configuration>
                     </plugin>

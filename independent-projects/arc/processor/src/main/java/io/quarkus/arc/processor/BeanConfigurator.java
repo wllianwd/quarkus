@@ -1,5 +1,7 @@
 package io.quarkus.arc.processor;
 
+import static io.quarkus.arc.processor.IndexClassLookupUtils.getClassByName;
+
 import io.quarkus.arc.BeanCreator;
 import io.quarkus.arc.BeanDestroyer;
 import io.quarkus.gizmo.FieldDescriptor;
@@ -57,7 +59,9 @@ public final class BeanConfigurator<T> {
 
     private final Map<String, Object> params;
 
-    private boolean isDefaultBean;
+    private boolean defaultBean;
+
+    private boolean removable;
 
     /**
      *
@@ -67,7 +71,7 @@ public final class BeanConfigurator<T> {
      */
     BeanConfigurator(DotName implClassName, BeanDeployment beanDeployment, Consumer<BeanInfo> beanConsumer) {
         this.consumed = new AtomicBoolean(false);
-        this.implClass = beanDeployment.getIndex().getClassByName(Objects.requireNonNull(implClassName));
+        this.implClass = getClassByName(beanDeployment.getIndex(), Objects.requireNonNull(implClassName));
         this.beanDeployment = beanDeployment;
         this.beanConsumer = beanConsumer;
         this.types = new HashSet<>();
@@ -75,6 +79,7 @@ public final class BeanConfigurator<T> {
         this.scope = BuiltinScope.DEPENDENT.getInfo();
         this.params = new HashMap<>();
         this.name = null;
+        this.removable = true;
     }
 
     public BeanConfigurator<T> param(String name, Class<?> value) {
@@ -124,6 +129,11 @@ public final class BeanConfigurator<T> {
         return this;
     }
 
+    public BeanConfigurator<T> addType(Type type) {
+        this.types.add(type);
+        return this;
+    }
+
     public BeanConfigurator<T> addQualifier(DotName annotationName) {
         this.qualifiers.add(AnnotationInstance.create(annotationName, null, new AnnotationValue[] {}));
         return this;
@@ -145,7 +155,12 @@ public final class BeanConfigurator<T> {
     }
 
     public BeanConfigurator<T> defaultBean() {
-        this.isDefaultBean = true;
+        this.defaultBean = true;
+        return this;
+    }
+
+    public BeanConfigurator<T> unremovable() {
+        this.removable = false;
         return this;
     }
 
@@ -209,7 +224,7 @@ public final class BeanConfigurator<T> {
                     .beanDeployment(beanDeployment).scope(scope).types(types)
                     .qualifiers(qualifiers)
                     .alternativePriority(alternativePriority).name(name).creator(creatorConsumer).destroyer(destroyerConsumer)
-                    .params(params).defaultBean(isDefaultBean).build());
+                    .params(params).defaultBean(defaultBean).removable(removable).build());
         }
     }
 

@@ -2,14 +2,19 @@ package io.quarkus.hibernate.search.elasticsearch.runtime;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.OptionalInt;
 
-import org.hibernate.search.backend.elasticsearch.cfg.ElasticsearchIndexLifecycleStrategyName;
-import org.hibernate.search.backend.elasticsearch.cfg.ElasticsearchIndexStatus;
-import org.hibernate.search.mapper.orm.cfg.HibernateOrmAutomaticIndexingSynchronizationStrategyName;
+import org.hibernate.search.backend.elasticsearch.index.IndexLifecycleStrategyName;
+import org.hibernate.search.backend.elasticsearch.index.IndexStatus;
+import org.hibernate.search.mapper.orm.automaticindexing.AutomaticIndexingSynchronizationStrategyName;
+import org.hibernate.search.mapper.orm.search.loading.EntityLoadingCacheLookupStrategy;
+import org.hibernate.search.util.common.SearchException;
+import org.hibernate.search.util.common.impl.StringHelper;
 
+import io.quarkus.runtime.annotations.ConfigDocMapKey;
+import io.quarkus.runtime.annotations.ConfigDocSection;
 import io.quarkus.runtime.annotations.ConfigGroup;
 import io.quarkus.runtime.annotations.ConfigItem;
 import io.quarkus.runtime.annotations.ConfigPhase;
@@ -19,23 +24,56 @@ import io.quarkus.runtime.annotations.ConfigRoot;
 public class HibernateSearchElasticsearchRuntimeConfig {
 
     /**
-     * Configuration of the default backend.
+     * Default backend
      */
-    ElasticsearchBackendRuntimeConfig elasticsearch;
+    @ConfigItem(name = "elasticsearch")
+    @ConfigDocSection
+    ElasticsearchBackendRuntimeConfig defaultBackend;
 
     /**
-     * Configuration of optional additional backends.
+     * Additional backends
      */
-    @ConfigItem(name = "elasticsearch.backends")
-    Map<String, ElasticsearchBackendRuntimeConfig> additionalBackends;
+    @ConfigItem(name = "elasticsearch")
+    @ConfigDocSection
+    public ElasticsearchAdditionalBackendsRuntimeConfig additionalBackends;
+
+    /**
+     * Configuration for how entities are loaded by a search query.
+     */
+    @ConfigItem(name = "query.loading")
+    SearchQueryLoadingConfig queryLoading;
+
+    /**
+     * Configuration for the automatic indexing.
+     */
+    @ConfigItem
+    AutomaticIndexingConfig automaticIndexing;
+
+    @ConfigGroup
+    public static class ElasticsearchAdditionalBackendsRuntimeConfig {
+
+        /**
+         * Additional backends
+         */
+        @ConfigDocMapKey("backend-name")
+        public Map<String, ElasticsearchBackendRuntimeConfig> backends;
+
+    }
 
     @ConfigGroup
     public static class ElasticsearchBackendRuntimeConfig {
         /**
          * The list of hosts of the Elasticsearch servers.
          */
-        @ConfigItem
+        @ConfigItem(defaultValue = "localhost:9200")
         List<String> hosts;
+
+        /**
+         * The protocol to use when contacting Elasticsearch servers.
+         * Set to "https" to enable SSL/TLS.
+         */
+        @ConfigItem(defaultValue = "http")
+        ElasticsearchClientProtocol protocol;
 
         /**
          * The username used for authentication.
@@ -52,32 +90,26 @@ public class HibernateSearchElasticsearchRuntimeConfig {
         /**
          * The connection timeout.
          */
-        @ConfigItem
-        Optional<Duration> connectionTimeout;
+        @ConfigItem(defaultValue = "3S")
+        Duration connectionTimeout;
 
         /**
          * The maximum number of connections to all the Elasticsearch servers.
          */
-        @ConfigItem
-        OptionalInt maxConnections;
+        @ConfigItem(defaultValue = "20")
+        int maxConnections;
 
         /**
          * The maximum number of connections per Elasticsearch server.
          */
-        @ConfigItem
-        OptionalInt maxConnectionsPerRoute;
+        @ConfigItem(defaultValue = "10")
+        int maxConnectionsPerRoute;
 
         /**
          * Configuration for the automatic discovery of new Elasticsearch nodes.
          */
         @ConfigItem
         DiscoveryConfig discovery;
-
-        /**
-         * Configuration for the automatic indexing.
-         */
-        @ConfigItem
-        AutomaticIndexing automaticIndexing;
 
         /**
          * The default configuration for the Elasticsearch indexes.
@@ -89,7 +121,42 @@ public class HibernateSearchElasticsearchRuntimeConfig {
          * Per-index specific configuration.
          */
         @ConfigItem
+        @ConfigDocMapKey("index-name")
         Map<String, ElasticsearchIndexConfig> indexes;
+    }
+
+    public enum ElasticsearchClientProtocol {
+        /**
+         * Use clear-text HTTP, with SSL/TLS disabled.
+         */
+        HTTP("http"),
+        /**
+         * Use HTTPS, with SSL/TLS enabled.
+         */
+        HTTPS("https");
+
+        public static ElasticsearchClientProtocol of(String value) {
+            return StringHelper.parseDiscreteValues(
+                    values(),
+                    ElasticsearchClientProtocol::getHibernateSearchString,
+                    (invalidValue, validValues) -> new SearchException(
+                            String.format(
+                                    Locale.ROOT,
+                                    "Invalid protocol: '%1$s'. Valid protocols are: %2$s.",
+                                    invalidValue,
+                                    validValues)),
+                    value);
+        }
+
+        private final String hibernateSearchString;
+
+        ElasticsearchClientProtocol(String hibernateSearchString) {
+            this.hibernateSearchString = hibernateSearchString;
+        }
+
+        public String getHibernateSearchString() {
+            return hibernateSearchString;
+        }
     }
 
     @ConfigGroup
@@ -99,12 +166,6 @@ public class HibernateSearchElasticsearchRuntimeConfig {
          */
         @ConfigItem
         LifecycleConfig lifecycle;
-
-        /**
-         * Defines if the indexes should be refreshed after writes.
-         */
-        @ConfigItem
-        Optional<Boolean> refreshAfterWrite;
     }
 
     @ConfigGroup
@@ -113,33 +174,25 @@ public class HibernateSearchElasticsearchRuntimeConfig {
         /**
          * Defines if automatic discovery is enabled.
          */
-        @ConfigItem
-        Optional<Boolean> enabled;
+        @ConfigItem(defaultValue = "false")
+        boolean enabled;
 
         /**
          * Refresh interval of the node list.
          */
-        Optional<Duration> refreshInterval;
+        @ConfigItem(defaultValue = "10S")
+        Duration refreshInterval;
 
-        /**
-         * The scheme that should be used for the new nodes discovered.
-         */
-        Optional<String> defaultScheme;
     }
 
     @ConfigGroup
-    public static class AutomaticIndexing {
+    public static class AutomaticIndexingConfig {
 
         /**
-         * The synchronization strategy to use when indexing automatically.
-         * <p>
-         * Defines the status for which you wait before considering the operation completed by Hibernate Search.
-         * <p>
-         * Can be either one of "queued", "committed" or "searchable".
-         * <p>
-         * Using "searchable" is recommend in unit tests.
+         * Configuration for synchronization with the index when indexing automatically.
          */
-        Optional<HibernateOrmAutomaticIndexingSynchronizationStrategyName> synchronizationStrategy;
+        @ConfigItem
+        AutomaticIndexingSynchronizationConfig synchronization;
 
         /**
          * Whether to check if dirty properties are relevant to indexing before actually reindexing an entity.
@@ -147,32 +200,75 @@ public class HibernateSearchElasticsearchRuntimeConfig {
          * When enabled, re-indexing of an entity is skipped if the only changes are on properties that are not used when
          * indexing.
          */
-        Optional<Boolean> enableDirtyCheck;
+        @ConfigItem(defaultValue = "true")
+        boolean enableDirtyCheck;
     }
 
+    @ConfigGroup
+    public static class AutomaticIndexingSynchronizationConfig {
+
+        /**
+         * The synchronization strategy to use when indexing automatically.
+         * <p>
+         * Defines the status for which you wait before considering the operation completed by Hibernate Search.
+         * <p>
+         * Use {@code queued} or {@code committed} in production environments.
+         * {@code searchable} is useful in integration tests.
+         */
+        @ConfigItem(defaultValue = "committed")
+        AutomaticIndexingSynchronizationStrategyName strategy;
+    }
+
+    @ConfigGroup
+    public static class SearchQueryLoadingConfig {
+
+        /**
+         * Configuration for cache lookup when loading entities during the execution of a search query.
+         */
+        @ConfigItem
+        SearchQueryLoadingCacheLookupConfig cacheLookup;
+
+        /**
+         * The fetch size to use when loading entities during the execution of a search query.
+         */
+        @ConfigItem(defaultValue = "100")
+        int fetchSize;
+    }
+
+    @ConfigGroup
+    public static class SearchQueryLoadingCacheLookupConfig {
+
+        /**
+         * The strategy to use when loading entities during the execution of a search query.
+         */
+        @ConfigItem(defaultValue = "skip")
+        EntityLoadingCacheLookupStrategy strategy;
+    }
+
+    // We can't set actual default values in this section,
+    // otherwise "quarkus.hibernate-search.elasticsearch.index-defaults" will be ignored.
     @ConfigGroup
     public static class LifecycleConfig {
 
         /**
          * The strategy used for index lifecycle.
-         * <p>
-         * Must be one of: none, validate, update, create, drop-and-create or drop-and-create-and-drop.
          */
-        @ConfigItem
-        Optional<ElasticsearchIndexLifecycleStrategyName> strategy;
+        // We can't set an actual default value here: see comment on this class.
+        @ConfigItem(defaultValueDocumentation = "create")
+        Optional<IndexLifecycleStrategyName> strategy;
 
         /**
          * The minimal cluster status required.
-         * <p>
-         * Must be one of: green, yellow, red.
          */
-        @ConfigItem
-        Optional<ElasticsearchIndexStatus> requiredStatus;
+        // We can't set an actual default value here: see comment on this class.
+        @ConfigItem(defaultValueDocumentation = "green")
+        Optional<IndexStatus> requiredStatus;
 
         /**
          * How long we should wait for the status before failing the bootstrap.
          */
-        @ConfigItem
+        // We can't set an actual default value here: see comment on this class.
+        @ConfigItem(defaultValueDocumentation = "10S")
         Optional<Duration> requiredStatusWaitTimeout;
     }
 }

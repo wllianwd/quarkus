@@ -11,9 +11,6 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.StringTokenizer;
 
-import org.apache.commons.cli.CommandLine;
-import org.apache.commons.cli.ParseException;
-import org.apache.maven.cli.CLIManager;
 import org.apache.maven.model.building.ModelBuilder;
 import org.apache.maven.model.building.ModelProblemCollector;
 import org.apache.maven.model.building.ModelProblemCollectorRequest;
@@ -55,14 +52,15 @@ import org.eclipse.aether.repository.RemoteRepository;
 import org.eclipse.aether.repository.RepositoryPolicy;
 import org.eclipse.aether.spi.connector.RepositoryConnectorFactory;
 import org.eclipse.aether.spi.connector.transport.TransporterFactory;
-import org.eclipse.aether.transport.file.FileTransporterFactory;
-import org.eclipse.aether.transport.http.HttpTransporterFactory;
+import org.eclipse.aether.transport.wagon.WagonProvider;
+import org.eclipse.aether.transport.wagon.WagonTransporterFactory;
 import org.eclipse.aether.util.repository.AuthenticationBuilder;
 import org.eclipse.aether.util.repository.DefaultAuthenticationSelector;
 import org.eclipse.aether.util.repository.DefaultMirrorSelector;
 import org.eclipse.aether.util.repository.DefaultProxySelector;
 import org.jboss.logging.Logger;
 import io.quarkus.bootstrap.resolver.AppModelResolverException;
+import io.quarkus.bootstrap.resolver.maven.options.BootstrapMavenOptions;
 import io.quarkus.bootstrap.util.PropertyUtils;
 
 
@@ -77,39 +75,37 @@ public class MavenRepoInitializer {
     private static final String BASEDIR = "basedir";
     private static final String MAVEN_CMD_LINE_ARGS = "MAVEN_CMD_LINE_ARGS";
     private static final String DOT_M2 = ".m2";
-    private static final String MAVEN_HOME = "maven.home";
-    private static final String M2_HOME = "M2_HOME";
+    private static final String MAVEN_DOT_HOME = "maven.home";
+    private static final String MAVEN_HOME = "MAVEN_HOME";
     private static final String SETTINGS_XML = "settings.xml";
 
     private static final String userHome = PropertyUtils.getUserHome();
     private static final File userMavenConfigurationHome = new File(userHome, DOT_M2);
-    private static final String envM2Home = System.getenv(M2_HOME);
+    private static final String envM2Home = System.getenv(MAVEN_HOME);
     private static final File USER_SETTINGS_FILE;
     private static final File GLOBAL_SETTINGS_FILE;
 
-    private static final CommandLine mvnArgs;
+    private static final String ALTERNATE_USER_SETTINGS = "s";
+    private static final String ALTERNATE_GLOBAL_SETTINGS = "gs";
+    private static final String OFFLINE = "o";
+    private static final String SUPRESS_SNAPSHOT_UPDATES = "nsu";
+    private static final String UPDATE_SNAPSHOTS = "U";
+    private static final String CHECKSUM_FAILURE_POLICY = "C";
+    private static final String CHECKSUM_WARNING_POLICY = "c";
+    private static final String ACTIVATE_PROFILES = "P";
+
+    private static final BootstrapMavenOptions mvnArgs;
 
     static {
         final String mvnCmd = System.getenv(MAVEN_CMD_LINE_ARGS);
-        String userSettings = null;
-        String globalSettings = null;
-        if(mvnCmd != null) {
-            final CLIManager mvnCli = new CLIManager();
-            try {
-                mvnArgs = mvnCli.parse(mvnCmd.split("\\s+"));
-            } catch (ParseException e) {
-                throw new IllegalStateException("Failed to parse Maven command line arguments", e);
-            }
-            userSettings = mvnArgs.getOptionValue(CLIManager.ALTERNATE_USER_SETTINGS);
-            globalSettings = mvnArgs.getOptionValue(CLIManager.ALTERNATE_GLOBAL_SETTINGS);
-        } else {
-            mvnArgs = null;
-        }
+        mvnArgs = BootstrapMavenOptions.newInstance(mvnCmd);
+        final String userSettings = mvnArgs.getOptionValue(ALTERNATE_USER_SETTINGS);
+        final String globalSettings = mvnArgs.getOptionValue(ALTERNATE_GLOBAL_SETTINGS);
 
         File f = userSettings != null ? resolveUserSettings(userSettings) : new File(userMavenConfigurationHome, SETTINGS_XML);
         USER_SETTINGS_FILE = f != null && f.exists() ? f : null;
 
-        f = globalSettings != null ? resolveUserSettings(globalSettings) : new File(PropertyUtils.getProperty(MAVEN_HOME, envM2Home != null ? envM2Home : ""), "conf/settings.xml");
+        f = globalSettings != null ? resolveUserSettings(globalSettings) : new File(PropertyUtils.getProperty(MAVEN_DOT_HOME, envM2Home != null ? envM2Home : ""), "conf/settings.xml");
         GLOBAL_SETTINGS_FILE = f != null && f.exists() ? f : null;
     }
 
@@ -152,8 +148,8 @@ public class MavenRepoInitializer {
         final DefaultServiceLocator locator = MavenRepositorySystemUtils.newServiceLocator();
         if(!offline) {
             locator.addService(RepositoryConnectorFactory.class, BasicRepositoryConnectorFactory.class);
-            locator.addService(TransporterFactory.class, FileTransporterFactory.class);
-            locator.addService(TransporterFactory.class, HttpTransporterFactory.class);
+            locator.addService(TransporterFactory.class, WagonTransporterFactory.class);
+            locator.setServices(WagonProvider.class, new BootstrapWagonProvider());
         }
         locator.setServices(ModelBuilder.class, new MavenModelBuilder(wsModelResolver));
         locator.setErrorHandler(new DefaultServiceLocator.ErrorHandler() {
@@ -185,18 +181,18 @@ public class MavenRepoInitializer {
 
         session.setOffline(settings.isOffline());
 
-        if(mvnArgs != null) {
-            if(!session.isOffline() && mvnArgs.hasOption(CLIManager.OFFLINE)) {
+        if(!mvnArgs.isEmpty()) {
+            if(!session.isOffline() && mvnArgs.hasOption(OFFLINE)) {
                 session.setOffline(true);
             }
-            if(mvnArgs.hasOption(CLIManager.SUPRESS_SNAPSHOT_UPDATES)) {
+            if(mvnArgs.hasOption(SUPRESS_SNAPSHOT_UPDATES)) {
                 session.setUpdatePolicy(RepositoryPolicy.UPDATE_POLICY_NEVER);
-            } else if(mvnArgs.hasOption(CLIManager.UPDATE_SNAPSHOTS)) {
+            } else if(mvnArgs.hasOption(UPDATE_SNAPSHOTS)) {
                 session.setUpdatePolicy(RepositoryPolicy.UPDATE_POLICY_ALWAYS);
             }
-            if(mvnArgs.hasOption(CLIManager.CHECKSUM_FAILURE_POLICY)) {
+            if(mvnArgs.hasOption(CHECKSUM_FAILURE_POLICY)) {
                 session.setChecksumPolicy(RepositoryPolicy.CHECKSUM_POLICY_FAIL);
-            } else if(mvnArgs.hasOption(CLIManager.CHECKSUM_WARNING_POLICY)) {
+            } else if(mvnArgs.hasOption(CHECKSUM_WARNING_POLICY)) {
                 session.setChecksumPolicy(RepositoryPolicy.CHECKSUM_POLICY_WARN);
             }
         }
@@ -271,24 +267,22 @@ public class MavenRepoInitializer {
 
             final List<String> activeProfiles = new ArrayList<>(0);
             final List<String> inactiveProfiles = new ArrayList<>(0);
-            if(mvnArgs != null) {
-                final String[] profileOptionValues = mvnArgs.getOptionValues(CLIManager.ACTIVATE_PROFILES);
-                if (profileOptionValues != null && profileOptionValues.length > 0) {
-                    for (String profileOptionValue : profileOptionValues) {
-                        final StringTokenizer profileTokens = new StringTokenizer(profileOptionValue, ",");
-                        while (profileTokens.hasMoreTokens()) {
-                            final String profileAction = profileTokens.nextToken().trim();
-                            if(profileAction.isEmpty()) {
-                                continue;
-                            }
-                            final char c = profileAction.charAt(0);
-                            if (c == '-' || c == '!') {
-                                inactiveProfiles.add(profileAction.substring(1));
-                            } else if (c == '+') {
-                                activeProfiles.add(profileAction.substring(1));
-                            } else {
-                                activeProfiles.add(profileAction);
-                            }
+            final String[] profileOptionValues = mvnArgs.getOptionValues(ACTIVATE_PROFILES);
+            if (profileOptionValues != null && profileOptionValues.length > 0) {
+                for (String profileOptionValue : profileOptionValues) {
+                    final StringTokenizer profileTokens = new StringTokenizer(profileOptionValue, ",");
+                    while (profileTokens.hasMoreTokens()) {
+                        final String profileAction = profileTokens.nextToken().trim();
+                        if (profileAction.isEmpty()) {
+                            continue;
+                        }
+                        final char c = profileAction.charAt(0);
+                        if (c == '-' || c == '!') {
+                            inactiveProfiles.add(profileAction.substring(1));
+                        } else if (c == '+') {
+                            activeProfiles.add(profileAction.substring(1));
+                        } else {
+                            activeProfiles.add(profileAction);
                         }
                     }
                 }
@@ -437,7 +431,15 @@ public class MavenRepoInitializer {
     }
 
     public static String getLocalRepo(Settings settings) {
-        final String localRepo = settings.getLocalRepository();
+        String localRepo = System.getenv("QUARKUS_LOCAL_REPO");
+        if(localRepo != null) {
+            return localRepo;
+        }
+        localRepo = PropertyUtils.getProperty("maven.repo.local");
+        if(localRepo != null) {
+            return localRepo;
+        }
+        localRepo = settings.getLocalRepository();
         return localRepo == null ? getDefaultLocalRepo() : localRepo;
     }
 

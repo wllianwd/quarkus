@@ -11,7 +11,7 @@
 
     <artifactId>quarkus-kogito</artifactId>
     <name>Quarkus - Kogito - Runtime</name>
-
+    <description>Add business automation capabilities - processes and rules with Kogito (a toolkit that originates from projects Drools and jBPM)</description>
     <dependencies>
 
         <!-- quarkus -->
@@ -27,7 +27,7 @@
 
         <dependency>
             <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-resteasy-jsonb</artifactId>
+            <artifactId>quarkus-resteasy-jackson</artifactId>
         </dependency>
 
         <dependency>
@@ -47,6 +47,16 @@
         <dependency>
             <groupId>org.kie.kogito</groupId>
             <artifactId>drools-model-compiler</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>javax.annotation</groupId>
+                    <artifactId>javax.annotation-api</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.annotation</groupId>
+            <artifactId>jakarta.annotation-api</artifactId>
         </dependency>
         <dependency>
             <groupId>org.kie.kogito</groupId>
@@ -55,6 +65,10 @@
         <dependency>
             <groupId>org.kie.kogito</groupId>
             <artifactId>jbpm-flow</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.kie.kogito</groupId>
+            <artifactId>kogito-dmn</artifactId>
         </dependency>
     </dependencies>
 

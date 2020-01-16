@@ -1,62 +1,64 @@
 package io.quarkus.flyway.runtime;
 
-import java.util.List;
-import java.util.stream.Collectors;
-
 import javax.enterprise.context.ApplicationScoped;
 import javax.enterprise.context.Dependent;
+import javax.enterprise.inject.Default;
+import javax.enterprise.inject.Instance;
 import javax.enterprise.inject.Produces;
 import javax.inject.Inject;
+import javax.sql.DataSource;
 
 import org.flywaydb.core.Flyway;
-import org.flywaydb.core.api.configuration.FluentConfiguration;
-
-import io.agroal.api.AgroalDataSource;
 
 @ApplicationScoped
 public class FlywayProducer {
+    private static final String ERROR_NOT_READY = "The Flyway settings are not ready to be consumed: the %s configuration has not been injected yet";
+
     @Inject
-    AgroalDataSource dataSource;
+    @Default
+    Instance<DataSource> defaultDataSource;
+
     private FlywayRuntimeConfig flywayRuntimeConfig;
-    private FlywayBuildConfig flywayBuildConfig;
+    private FlywayBuildTimeConfig flywayBuildConfig;
 
     @Produces
     @Dependent
+    @Default
     public Flyway produceFlyway() {
-        FluentConfiguration configure = Flyway.configure();
-        configure.dataSource(dataSource);
-        flywayRuntimeConfig.connectRetries.ifPresent(configure::connectRetries);
-        List<String> notEmptySchemas = filterBlanks(flywayRuntimeConfig.schemas);
-        if (!notEmptySchemas.isEmpty()) {
-            configure.schemas(notEmptySchemas.toArray(new String[0]));
-        }
-        flywayRuntimeConfig.table.ifPresent(configure::table);
-        List<String> notEmptyLocations = filterBlanks(flywayBuildConfig.locations);
-        if (!notEmptyLocations.isEmpty()) {
-            configure.locations(notEmptyLocations.toArray(new String[0]));
-        }
-        flywayRuntimeConfig.sqlMigrationPrefix.ifPresent(configure::sqlMigrationPrefix);
-        flywayRuntimeConfig.repeatableSqlMigrationPrefix.ifPresent(configure::repeatableSqlMigrationPrefix);
-
-        configure.baselineOnMigrate(flywayRuntimeConfig.baselineOnMigrate);
-        flywayRuntimeConfig.baselineVersion.ifPresent(configure::baselineVersion);
-        flywayRuntimeConfig.baselineDescription.ifPresent(configure::baselineDescription);
-
-        return configure.load();
-    }
-
-    // NOTE: Have to do this filtering because SmallRye config was injecting an empty string in the list somehow!
-    // TODO: remove this when https://github.com/quarkusio/quarkus/issues/2288 is fixed
-    private List<String> filterBlanks(List<String> values) {
-        return values.stream().filter(it -> it != null && !"".equals(it))
-                .collect(Collectors.toList());
+        return createDefaultFlyway(defaultDataSource.get());
     }
 
     public void setFlywayRuntimeConfig(FlywayRuntimeConfig flywayRuntimeConfig) {
         this.flywayRuntimeConfig = flywayRuntimeConfig;
     }
 
-    public void setFlywayBuildConfig(FlywayBuildConfig flywayBuildConfig) {
+    public void setFlywayBuildConfig(FlywayBuildTimeConfig flywayBuildConfig) {
         this.flywayBuildConfig = flywayBuildConfig;
+    }
+
+    private Flyway createDefaultFlyway(DataSource dataSource) {
+        return new FlywayCreator(getFlywayRuntimeConfig().defaultDataSource, getFlywayBuildConfig().defaultDataSource)
+                .createFlyway(dataSource);
+    }
+
+    public Flyway createFlyway(DataSource dataSource, String dataSourceName) {
+        return new FlywayCreator(getFlywayRuntimeConfig().getConfigForDataSourceName(dataSourceName),
+                getFlywayBuildConfig().getConfigForDataSourceName(dataSourceName))
+                        .createFlyway(dataSource);
+    }
+
+    private FlywayRuntimeConfig getFlywayRuntimeConfig() {
+        return failIfNotReady(flywayRuntimeConfig, "runtime");
+    }
+
+    private FlywayBuildTimeConfig getFlywayBuildConfig() {
+        return failIfNotReady(flywayBuildConfig, "build");
+    }
+
+    private static <T> T failIfNotReady(T config, String name) {
+        if (config == null) {
+            throw new IllegalStateException(String.format(ERROR_NOT_READY, name));
+        }
+        return config;
     }
 }

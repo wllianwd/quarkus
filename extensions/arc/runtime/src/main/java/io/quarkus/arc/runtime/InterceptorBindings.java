@@ -5,14 +5,12 @@ import java.util.Set;
 
 import javax.interceptor.InvocationContext;
 
-import io.quarkus.arc.InvocationContextImpl;
+import io.quarkus.arc.ArcInvocationContext;
 
 public class InterceptorBindings {
 
+    @SuppressWarnings("unchecked")
     public static Set<Annotation> getInterceptorBindings(InvocationContext invocationContext) {
-        if (invocationContext instanceof InvocationContextImpl) {
-            return ((InvocationContextImpl) invocationContext).getInterceptorBindings();
-        }
-        return null;
+        return (Set<Annotation>) invocationContext.getContextData().get(ArcInvocationContext.KEY_INTERCEPTOR_BINDINGS);
     }
 }

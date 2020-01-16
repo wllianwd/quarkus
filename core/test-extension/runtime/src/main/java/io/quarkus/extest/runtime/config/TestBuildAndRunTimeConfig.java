@@ -3,6 +3,7 @@ package io.quarkus.extest.runtime.config;
 import java.util.List;
 import java.util.Map;
 
+import io.quarkus.runtime.annotations.ConfigDocSection;
 import io.quarkus.runtime.annotations.ConfigItem;
 import io.quarkus.runtime.annotations.ConfigPhase;
 import io.quarkus.runtime.annotations.ConfigRoot;
@@ -27,6 +28,7 @@ public class TestBuildAndRunTimeConfig {
     public StringBasedValue btSBVWithDefault;
     /** A nested config group with all supported value types */
     @ConfigItem
+    @ConfigDocSection
     public AllValuesConfig allValues;
 
     /**
@@ -35,6 +37,8 @@ public class TestBuildAndRunTimeConfig {
     @ConfigItem
     @ConvertWith(WholeNumberConverter.class)
     public Map<String, Integer> mapOfNumbers;
+
+    public Map<String, Map<String, String>> mapMap;
 
     /**
      * Enum object

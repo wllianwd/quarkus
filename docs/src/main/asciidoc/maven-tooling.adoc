@@ -3,7 +3,7 @@ This guide is maintained in the main Quarkus repository
 and pull requests should be submitted there:
 https://github.com/quarkusio/quarkus/tree/master/docs/src/main/asciidoc
 ////
-= Building Quarkus apps with Maven
+= Quarkus - Building applications with Maven
 
 include::./attributes.adoc[]
 
@@ -44,6 +44,18 @@ The following table lists the attributes you can pass to the `create` command:
 | `1.0-SNAPSHOT`
 | The version of the created project
 
+| `platformGroupId`
+| `io.quarkus`
+| The group id of the target platform. Given that all the existing platforms are coming from `io.quarkus` this one won't practically be used explicitly. But it's still an option.
+
+| `platformArtifactId`
+| `quarkus-universe-bom`
+| The artifact id of the target platform BOM. It should be `quarkus-bom` in order to use the locally built Quarkus.
+
+| `platformVersion`
+| If it's not specified, the latest one will be resolved.
+| The version of the platform you want the project to use. It can also accept a version range, in which case the latest from the specified range will be used.
+
 | `className`
 | _Not created if omitted_
 | The fully qualified name of the generated resource
@@ -58,11 +70,13 @@ The following table lists the attributes you can pass to the `create` command:
 
 |===
 
+By default, the command will target the latest version of `quarkus-universe-bom` (unless specific coordinates have been specified). If you run offline however, it will look for the latest locally available and if `quarkus-universe-bom` (satisfying the default version range which is currently up to 2.0) is not available locally, it will fallback to the bundled platform based on `quarkus-bom` (the version will match the version of the plugin).
+
 If you decide to generate a REST resource (using the `className` attribute), the endpoint is exposed at: `http://localhost:8080/$path`.
 If you use the default `path`, the URL is: http://localhost:8080/hello.
 
-The project is either generated in the current directory or in a directory named after the passed artifactId.
-If the current directory is empty, the project is generated in-place.
+The project is generated in a directory named after the passed artifactId.
+If the directory already exists, the generation fails.
 
 A pair of Dockerfiles for native and jvm mode are also generated in `src/main/docker`.
 Instructions to build the image and run the container are written in those Dockerfiles.
@@ -102,6 +116,13 @@ $ ./mvnw quarkus:add-extensions -Dextensions=jdbc,agroal,non-exist-ent
 ✅ Adding extension io.quarkus:quarkus-agroal
 ❌ Cannot find a dependency matching 'non-exist-ent', maybe a typo?
 [...]
+----
+
+You can install all extensions which match a globbing pattern :
+
+[source,shell]
+----
+./mvnw quarkus:add-extension -Dextensions="hibernate-*"
 ----
 
 == Development mode
@@ -162,6 +183,39 @@ Start Quarkus in dev mode on the remote host. Now you need to connect your local
 Now every time you refresh the browser you should see any changes you have made locally immediately visible in the remote
 app.
 
+=== Configuring Development Mode
+
+By default, the Maven plugin picks up compiler flags to pass to
+`javac` from `maven-compiler-plugin`.
+
+If you need to customize the compiler flags used in development mode,
+add a `configuration` section to the `plugin` block and set the
+`compilerArgs` property just as you would when configuring
+`maven-compiler-plugin`.  You can also set `source`, `target`, and
+`jvmArgs`.  For example, to pass `--enable-preview` to both the JVM
+and `javac`:
+
+[source,xml]
+----
+<plugin>
+  <groupId>io.quarkus</groupId>
+  <artifactId>quarkus-maven-plugin</artifactId>
+  <version>${quarkus.version}</version>
+
+  <configuration>
+    <source>${maven.compiler.source}</source>
+    <target>${maven.compiler.target}</target>
+    <compilerArgs>
+      <arg>--enable-preview</arg>
+    </compilerArgs>
+    <jvmArgs>--enable-preview</jvmArgs>
+  </configuration>
+
+  ...
+</plugin>
+----
+
+
 == Debugging
 
 In development mode, Quarkus starts by default with debug mode enabled, listening to port `5005` without suspending the JVM.
@@ -169,9 +223,15 @@ In development mode, Quarkus starts by default with debug mode enabled, listenin
 This behavior can be changed by giving the `debug` system property one of the following values:
 
 * `false` - the JVM will start with debug mode disabled
-* `true` - the JVM will start in debug mode and be suspended until a debugger is attached to port `5005`
+* `true` - The JVM is started in debug mode and will be listening on port `5005`
 * `client` - the JVM will start in client mode and attempt to connect to `localhost:5005`
-* `{port}` - the JVM will start in debug mode and be suspended until a debugger is attached to `{port}`
+* `{port}` - The JVM is started in debug mode and will be listening on `{port}`
+
+An additional system property `suspend` can be used to suspend the JVM, when launched in debug mode. `suspend` supports the following values:
+
+* `y` or `true` - The debug mode JVM launch is suspended
+* `n` or `false` - The debug mode JVM is started without suspending
+
 
 [TIP]
 ====
@@ -206,9 +266,9 @@ In IntelliJ:
 
 In a separated terminal or in the embedded terminal, run `./mvnw compile quarkus:dev`. Enjoy!
 
-**Apache Netbeans**
+**Apache NetBeans**
 
-In Netbeans:
+In NetBeans:
 
 1. Select `File -> Open Project`
 2. Select the project root
@@ -302,14 +362,14 @@ To create an executable that will run in a container, use the following:
 
 [source,shell]
 ----
-./mvnw package -Pnative -Dnative-image.docker-build=true
+./mvnw package -Dnative -Dquarkus.native.container-build=true
 ----
 
 The produced executable will be a 64 bit Linux executable, so depending on your operating system it may no longer be runnable.
 However, it's not an issue as we are going to copy it to a Docker container.
 Note that in this case the build itself runs in a Docker container too, so you don't need to have GraalVM installed locally.
 
-You can follow the link:building-native-image-guide.html[Build a native executable guide] as well as link:kubernetes-guide.html[Deploying Application to Kubernetes and OpenShift] for more information.
+You can follow the link:building-native-image[Build a native executable guide] as well as link:deploying-to-kubernetes[Deploying Application to Kubernetes and OpenShift] for more information.
 
 [[build-tool-maven]]
 == Maven configuration
@@ -350,24 +410,12 @@ If you have not used <<project-creation,project scaffolding>>, add the following
 <profiles>
     <profile> <3>
         <id>native</id>
+        <properties> <4>
+            <quarkus.package.type>native</quarkus.package.type>
+        </properties>
         <build>
             <plugins>
-                <plugin> <3>
-                    <groupId>io.quarkus</groupId>
-                    <artifactId>quarkus-maven-plugin</artifactId>
-                    <version>${quarkus.version}</version>
-                    <executions>
-                        <execution>
-                            <goals>
-                                <goal>native-image</goal>
-                            </goals>
-                            <configuration>
-                                <enableHttpUrlHandler>true</enableHttpUrlHandler>
-                            </configuration>
-                        </execution>
-                    </executions>
-                </plugin>
-                <plugin> <4>
+                <plugin> <5>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-failsafe-plugin</artifactId>
                     <version>${surefire-plugin.version}</version>
@@ -392,105 +440,41 @@ If you have not used <<project-creation,project scaffolding>>, add the following
 ----
 
 <1> Optionally use a BOM file to omit the version of the different Quarkus dependencies.
-<2> Use the Quarkus Maven plugin that will hook into the build process
-<3> Use a native profile and plugin to activate GraalVM compilation
-<4> If you want to test your native executable with Integration Tests, add the following plugin configuration. Test names `*IT` and annotated `@SubstrateTest` will be run against the native executable. See the link:building-native-image-guide.html[Native executable guide] for more info.
+<2> Use the Quarkus Maven plugin that will hook into the build process.
+<3> Use a specific `native` profile for native executable building.
+<4> Enable the `native` package type. The build will therefore produce a native executable.
+<5> If you want to test your native executable with Integration Tests, add the following plugin configuration. Test names `*IT` and annotated `@NativeImageTest` will be run against the native executable. See the link:building-native-image[Native executable guide] for more info.
 
 [[uber-jar-maven]]
 === Uber-Jar Creation
 
-Quarkus Maven plugin supports the generation of Uber-Jars by specifying an `<uberJar>` configuration option in your `pom.xml`.
+Quarkus Maven plugin supports the generation of Uber-Jars by specifying a `quarkus.package.uber-jar=true` configuration option in your `application.properties`.
 
-[source,xml,subs=attributes+]
-----
-<build>
-    <plugins>
-        <plugin> 
-            <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-maven-plugin</artifactId>
-            <version>${quarkus.version}</version>
-            <configuration>
-                <uberJar>true</uberJar> <1>
-            </configuration>
-            <executions>
-                <execution>
-                    <goals>
-                        <goal>build</goal>
-                    </goals>
-                </execution>
-            </executions>
-        </plugin>
-    </plugins>
-</build>
-----
+The original jar will still be present in the `target` directory but it will be renamed to contain the `.original` suffix.
 
-<1> Specifies that we want to build an Uber-Jar instead of a regular one. The regular jar will still be present in the `target` directory but it will be renamed to contain the `.original` suffix.
+When building an Uber-Jar you can specify entries that you want to exclude from the generated jar by using the `quarkus.package.ignored-entries` configuration
+option, this takes a comma seperated list of entries to ignore.
 
-When building an Uber-Jar you can specify entries that you want to exclude from the generated jar by using the `<ignoredEntries>` configuration option.
+Uber-Jar creation by default excludes link:https://docs.oracle.com/javase/tutorial/deployment/jar/intro.html[signature files] that might be present in the dependencies of the application.
 
-[source,xml,subs=attributes+]
-----
-<build>
-    <plugins>
-        <plugin> 
-            <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-maven-plugin</artifactId>
-            <version>${quarkus.version}</version>
-            <configuration>
-                <uberJar>true</uberJar>
-                <ignoredEntries>
-                    <ignoredEntry>META-INF/DEPENDENCIES.txt</ignoredEntry> <1>
-                </ignoredEntries>
-            </configuration>
-            <executions>
-                <execution>
-                    <goals>
-                        <goal>build</goal>
-                    </goals>
-                </execution>
-            </executions>
-        </plugin>
-    </plugins>
-</build>
-----
+Uber-Jar's final name is configurable via a Maven's build settings `finalName` option.
 
-<1> The entries are relative to the root of the generated Uber-Jar. You can specify multiple entries by adding extra `<ignoredEntry>` elements.
+[[configuration-reference]]
+== Configuring the Project Output
 
+There are a several configuration options that will define what the output of your project build will be.
+These are provided in `application.properties` the same as any other config property.
 
-Uber-Jar's final name is configurable via a Maven's build settings `finalName` option or via a `finalName` configuration option as shown below.
+The properties are shown below:
 
-[source,xml,subs=attributes+]
-----
-<build>
-    <plugins>
-        <plugin>
-            <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-maven-plugin</artifactId>
-            <version>${quarkus.version}</version>
-            <configuration>
-                <uberJar>true</uberJar>
-                <finalName>uber-jar-name</finalName> <1>
-            </configuration>
-            <executions>
-                <execution>
-                    <goals>
-                        <goal>build</goal>
-                    </goals>
-                </execution>
-            </executions>
-        </plugin>
-    </plugins>
-</build>
-----
-
-<1> This configuration will output a file `uber-jar-name-runner.jar` inside the `target` directory. When `finalName` option is not set, project's build final name is used.
+include::{generated-dir}/config/quarkus-package-pkg-package-config.adoc[opts=optional]
 
 [[custom-test-configuration-profile]]
-=== Custom test configuration profile
+=== Custom test configuration profile in JVM mode
 
-By default, Quarkus tests are run using the `test` configuration profile. If you are not familiar with Quarkus configuration
-profiles, everything you need to know is explained in the
-link:application-configuration-guide.html#configuration-profiles[Configuration Profiles Documentation].
+By default, Quarkus tests in JVM mode are run using the `test` configuration profile. If you are not familiar with Quarkus
+configuration profiles, everything you need to know is explained in the
+link:config#configuration-profiles[Configuration Profiles Documentation].
 
 It is however possible to use a custom configuration profile for your tests with the Maven Surefire and Maven Failsafe
 configurations shown below. This can be useful if you need for example to run some tests using a specific database which is not
@@ -533,3 +517,9 @@ your default testing database.
 ----
 
 <1> The `foo` configuration profile will be used to run the tests.
+
+[WARNING]
+====
+It is not possible to use a custom test configuration profile in native mode for now. Native tests are always run using the
+`prod` profile.
+====

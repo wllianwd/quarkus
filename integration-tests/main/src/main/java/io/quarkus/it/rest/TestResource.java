@@ -78,6 +78,13 @@ public class TestResource {
     }
 
     @GET
+    @Path("/config/names")
+    @Produces("application/json")
+    public String configNames() {
+        return String.join(",", config.names());
+    }
+
+    @GET
     @Path("/count")
     public int count() {
         return count.incrementAndGet();
@@ -254,17 +261,18 @@ public class TestResource {
     @GET
     @Path("/from-json")
     @Produces("application/json")
-    public MyEntity fromJson() {
+    public MyEntity fromJson() throws Exception {
         MyEntity entity = new MyEntity();
         entity.name = "my entity name";
         entity.value = "my entity value";
 
         JsonbConfig config = new JsonbConfig();
-        Jsonb jsonb = JsonbBuilder.create(config);
-        String json = jsonb.toJson(entity);
-        MyEntity fromJsonEntity = jsonb.fromJson(json, MyEntity.class);
+        try (Jsonb jsonb = JsonbBuilder.create(config)) {
+            String json = jsonb.toJson(entity);
+            MyEntity fromJsonEntity = jsonb.fromJson(json, MyEntity.class);
 
-        return fromJsonEntity;
+            return fromJsonEntity;
+        }
     }
 
     @GET
@@ -276,6 +284,70 @@ public class TestResource {
             @MatrixParam("matrix") String matrix,
             @QueryParam("query") String query) {
     }
+
+    // FIXME: don't enable this until https://github.com/smallrye/smallrye-open-api/issues/197 has been fixed
+    //    // make sure these don't break the build when fields
+    //    @org.jboss.resteasy.annotations.jaxrs.PathParam
+    //    String pathField;
+    //    @org.jboss.resteasy.annotations.jaxrs.FormParam
+    //    String formField;
+    //    @org.jboss.resteasy.annotations.jaxrs.CookieParam
+    //    String cookieField;
+    //    @org.jboss.resteasy.annotations.jaxrs.HeaderParam
+    //    String headerField;
+    //    @org.jboss.resteasy.annotations.jaxrs.MatrixParam
+    //    String matrixField;
+    //    @org.jboss.resteasy.annotations.jaxrs.QueryParam
+    //    String queryField;
+    //
+    //    // make sure these don't break the build when properties
+    //    public String getPathProperty() {
+    //        return null;
+    //    }
+    //
+    //    @org.jboss.resteasy.annotations.jaxrs.PathParam
+    //    public void setPathProperty(String p) {
+    //    }
+    //
+    //    public String getFormProperty() {
+    //        return null;
+    //    }
+    //
+    //    @org.jboss.resteasy.annotations.jaxrs.FormParam
+    //    public void setFormProperty(String p) {
+    //    }
+    //
+    //    public String getCookieProperty() {
+    //        return null;
+    //    }
+    //
+    //    @org.jboss.resteasy.annotations.jaxrs.CookieParam
+    //    public void setCookieProperty(String p) {
+    //    }
+    //
+    //    public String getHeaderProperty() {
+    //        return null;
+    //    }
+    //
+    //    @org.jboss.resteasy.annotations.jaxrs.HeaderParam
+    //    public void setHeaderProperty(String p) {
+    //    }
+    //
+    //    public String getMatrixProperty() {
+    //        return null;
+    //    }
+    //
+    //    @org.jboss.resteasy.annotations.jaxrs.MatrixParam
+    //    public void setMatrixProperty(String p) {
+    //    }
+    //
+    //    public String getQueryProperty() {
+    //        return null;
+    //    }
+    //
+    //    @org.jboss.resteasy.annotations.jaxrs.QueryParam
+    //    public void setQueryProperty(String p) {
+    //    }
 
     @GET
     @Path("params2/{path}")
@@ -291,6 +363,12 @@ public class TestResource {
     @Path("/gzip")
     public String gzip(byte[] message) throws UnsupportedEncodingException {
         return "gzipped:" + new String(message, "UTF-8");
+    }
+
+    @POST
+    @Path("/max-body-size")
+    public String echoPayload(String payload) {
+        return payload;
     }
 
     @XmlRootElement
@@ -382,7 +460,6 @@ public class TestResource {
         String getName();
     }
 
-    @RegisterForReflection
     public static class MyEntity {
         private String name;
         private String value;
@@ -402,6 +479,11 @@ public class TestResource {
         public void setValue(String value) {
             this.value = value;
         }
+    }
+
+    @RegisterForReflection(targets = MyEntity.class)
+    public static class EmptyClass {
+
     }
 
     public static class MyOpenApiEntityV1 {

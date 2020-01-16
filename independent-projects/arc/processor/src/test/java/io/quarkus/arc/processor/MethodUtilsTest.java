@@ -13,8 +13,8 @@ import org.jboss.jandex.ClassInfo;
 import org.jboss.jandex.DotName;
 import org.jboss.jandex.Index;
 import org.jboss.jandex.MethodInfo;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
  *
@@ -26,7 +26,7 @@ public class MethodUtilsTest {
 
     private Index index;
 
-    @Before
+    @BeforeEach
     public void setUp() throws IOException {
         index = index(SomeClass.class, SuperClass.class, SuperSuperClass.class, TheRoot.class);
     }
@@ -45,7 +45,7 @@ public class MethodUtilsTest {
         ClassInfo superClass = classInfo(SuperClass.class.getName());
 
         MethodInfo parentMethod = superClass.firstMethod("fromSuperClass");
-        assertThat(MethodUtils.isOverriden(parentMethod, aClass.methods())).isTrue();
+        assertThat(Methods.isOverriden(parentMethod, aClass.methods())).isTrue();
     }
 
     @Test
@@ -56,7 +56,7 @@ public class MethodUtilsTest {
 
         MethodInfo genericMethod = grandma.firstMethod("generic");
 
-        assertThat(MethodUtils.isOverriden(genericMethod, methods)).isTrue();
+        assertThat(Methods.isOverriden(genericMethod, methods)).isTrue();
     }
 
     @Test
@@ -65,7 +65,7 @@ public class MethodUtilsTest {
         ClassInfo superClass = classInfo(SuperClass.class.getName());
 
         MethodInfo parentMethod = superClass.firstMethod("notOverridenFromSuperClass");
-        assertThat(MethodUtils.isOverriden(parentMethod, aClass.methods())).isFalse();
+        assertThat(Methods.isOverriden(parentMethod, aClass.methods())).isFalse();
     }
 
     @Test
@@ -75,7 +75,7 @@ public class MethodUtilsTest {
         ClassInfo grandma = classInfo(SuperSuperClass.class.getName());
 
         MethodInfo parentMethod = grandma.firstMethod("notOverridenNonGeneric");
-        assertThat(MethodUtils.isOverriden(parentMethod, methods)).isFalse();
+        assertThat(Methods.isOverriden(parentMethod, methods)).isFalse();
     }
 
     @Test
@@ -85,7 +85,7 @@ public class MethodUtilsTest {
         ClassInfo grandma = classInfo(SuperSuperClass.class.getName());
 
         MethodInfo parentMethod = grandma.firstMethod("notOverridenGeneric");
-        assertThat(MethodUtils.isOverriden(parentMethod, methods)).isFalse();
+        assertThat(Methods.isOverriden(parentMethod, methods)).isFalse();
     }
 
     @Test
@@ -95,7 +95,7 @@ public class MethodUtilsTest {
         ClassInfo grandma = classInfo(SuperSuperClass.class.getName());
 
         MethodInfo parentMethod = grandma.firstMethod("almostMatchingGeneric");
-        assertThat(MethodUtils.isOverriden(parentMethod, methods)).isFalse();
+        assertThat(Methods.isOverriden(parentMethod, methods)).isFalse();
     }
 
     @Test
@@ -105,7 +105,7 @@ public class MethodUtilsTest {
         ClassInfo root = classInfo(TheRoot.class.getName());
 
         MethodInfo parentMethod = root.firstMethod("generic");
-        assertThat(MethodUtils.isOverriden(parentMethod, methods)).isTrue();
+        assertThat(Methods.isOverriden(parentMethod, methods)).isTrue();
     }
 
     private ClassInfo classInfo(Class<?> aClass) {

@@ -13,11 +13,13 @@ import io.restassured.RestAssured;
 
 public class ContextPathTestCase {
 
+    private static final String CONTEXT_PATH = "/foo";
+
     @RegisterExtension
     static QuarkusUnitTest runner = new QuarkusUnitTest()
             .setArchiveProducer(() -> ShrinkWrap.create(JavaArchive.class)
                     .addClasses(TestServlet.class)
-                    .addAsResource(new StringAsset("quarkus.servlet.context-path=/foo"), "application.properties"));
+                    .addAsResource(new StringAsset("quarkus.servlet.context-path=" + CONTEXT_PATH), "application.properties"));
 
     @Test
     public void testServlet() {

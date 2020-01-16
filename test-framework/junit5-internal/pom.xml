@@ -12,7 +12,7 @@
     </parent>
 
     <artifactId>quarkus-junit5-internal</artifactId>
-    <name>Quarkus - Test framework - JUnit 5 Internal Test Framework</name>
+    <name>Quarkus - Test Framework - JUnit 5 Internal Test Framework</name>
 
     <description>
         A runner for unit tests, intended for testing Quarkus rather than
@@ -49,8 +49,12 @@
             <artifactId>quarkus-test-common</artifactId>
         </dependency>
         <dependency>
-            <groupId>javax.enterprise</groupId>
-            <artifactId>cdi-api</artifactId>
+            <groupId>jakarta.enterprise</groupId>
+            <artifactId>jakarta.enterprise.cdi-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-development-mode</artifactId>
         </dependency>
     </dependencies>
 

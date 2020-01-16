@@ -12,7 +12,7 @@
     </parent>
 
     <artifactId>quarkus-test-amazon-lambda</artifactId>
-    <name>Quarkus - Amazon Lambda - Test Framework</name>
+    <name>Quarkus - Test Framework - Amazon Lambda</name>
 
     <dependencies>
         <dependency>
@@ -24,12 +24,12 @@
             <artifactId>quarkus-test-common</artifactId>
         </dependency>
         <dependency>
-            <groupId>io.undertow</groupId>
-            <artifactId>undertow-core</artifactId>
+            <groupId>io.quarkus.http</groupId>
+            <artifactId>quarkus-http-core</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
+            <groupId>io.quarkus.http</groupId>
+            <artifactId>quarkus-http-vertx-backend</artifactId>
         </dependency>
     </dependencies>
 </project>

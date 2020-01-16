@@ -1,17 +1,17 @@
 package io.quarkus.runtime.configuration;
 
 import static java.util.Collections.singletonMap;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import java.util.HashMap;
 import java.util.Map;
 
 import org.eclipse.microprofile.config.Config;
 import org.eclipse.microprofile.config.spi.ConfigProviderResolver;
-import org.junit.After;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
 import io.smallrye.config.PropertiesConfigSource;
 import io.smallrye.config.SmallRyeConfig;
@@ -23,15 +23,19 @@ public class ConfigProfileTestCase {
     static ConfigProviderResolver cpr;
     Config config;
 
-    @BeforeClass
+    @BeforeAll
     public static void initConfig() {
         classLoader = Thread.currentThread().getContextClassLoader();
         cpr = ConfigProviderResolver.instance();
     }
 
-    @After
+    @AfterEach
     public void doAfter() {
-        cpr.releaseConfig(config);
+        try {
+            cpr.releaseConfig(cpr.getConfig());
+        } catch (IllegalStateException ignored) {
+            // just means no config was installed, which is fine
+        }
     }
 
     private SmallRyeConfig buildConfig(Map<String, String> configMap) {

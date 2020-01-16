@@ -12,6 +12,10 @@ import org.eclipse.microprofile.config.ConfigProvider;
 import io.quarkus.builder.item.SimpleBuildItem;
 import io.quarkus.deployment.configuration.ConfigurationError;
 
+/**
+ * @deprecated Do not use this class anymore, instead try {@code ConfigProvider.getConfig.getValue()} instead.
+ */
+@Deprecated
 public final class QuarkusConfig extends SimpleBuildItem {
 
     public static final QuarkusConfig INSTANCE = new QuarkusConfig();
@@ -42,11 +46,11 @@ public final class QuarkusConfig extends SimpleBuildItem {
         Set<String> props = new HashSet<>();
         for (String i : ConfigProvider.getConfig().getPropertyNames()) {
             if (i.startsWith(prefix)) {
-                int idex = i.indexOf('.', prefix.length() + 1);
-                if (idex == -1) {
+                int index = i.indexOf('.', prefix.length() + 1);
+                if (index == -1) {
                     props.add(i.substring(prefix.length() + 1));
                 } else {
-                    props.add(i.substring(prefix.length() + 1, idex));
+                    props.add(i.substring(prefix.length() + 1, index));
                 }
             }
         }

@@ -17,16 +17,23 @@ import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.logging.Handler;
+import java.util.stream.Collectors;
 
 import org.objectweb.asm.ClassVisitor;
 
 import io.quarkus.builder.BuildChainBuilder;
 import io.quarkus.builder.BuildResult;
+import io.quarkus.deployment.ApplicationArchive;
 import io.quarkus.deployment.ClassOutput;
 import io.quarkus.deployment.QuarkusAugmentor;
+import io.quarkus.deployment.builditem.ApplicationArchivesBuildItem;
 import io.quarkus.deployment.builditem.ApplicationClassNameBuildItem;
 import io.quarkus.deployment.builditem.BytecodeTransformerBuildItem;
+import io.quarkus.deployment.builditem.DeploymentClassLoaderBuildItem;
+import io.quarkus.deployment.builditem.GeneratedClassBuildItem;
+import io.quarkus.deployment.builditem.GeneratedResourceBuildItem;
 import io.quarkus.deployment.builditem.LiveReloadBuildItem;
+import io.quarkus.deployment.configuration.RunTimeConfigurationGenerator;
 import io.quarkus.runtime.Application;
 import io.quarkus.runtime.LaunchMode;
 import io.quarkus.runtime.configuration.ProfileManager;
@@ -89,8 +96,8 @@ public class RuntimeRunner implements Runnable, Closeable {
             QuarkusAugmentor.Builder builder = QuarkusAugmentor.builder();
             builder.setRoot(target);
             builder.setClassLoader(loader);
-            builder.setOutput(classOutput);
             builder.setLaunchMode(launchMode);
+            builder.setBuildSystemProperties(buildSystemProperties);
             if (liveReloadState != null) {
                 builder.setLiveReloadState(liveReloadState);
             }
@@ -113,16 +120,49 @@ public class RuntimeRunner implements Runnable, Closeable {
                     functions.computeIfAbsent(i.getClassToTransform(), (f) -> new ArrayList<>()).add(i.getVisitorFunction());
                 }
 
+                DeploymentClassLoaderBuildItem deploymentClassLoaderBuildItem = result
+                        .consume(DeploymentClassLoaderBuildItem.class);
+                ClassLoader previous = Thread.currentThread().getContextClassLoader();
+
+                // make sure we use the DeploymentClassLoader for executing transformers since this is the only safe CL for transformations at this point
+                Thread.currentThread().setContextClassLoader(deploymentClassLoaderBuildItem.getClassLoader());
                 transformerTarget.setTransformers(functions);
+                Thread.currentThread().setContextClassLoader(previous);
+            }
+
+            if (loader instanceof RuntimeClassLoader) {
+                ApplicationArchivesBuildItem archives = result.consume(ApplicationArchivesBuildItem.class);
+                ((RuntimeClassLoader) loader).setApplicationArchives(archives.getApplicationArchives().stream()
+                        .map(ApplicationArchive::getArchiveRoot).collect(Collectors.toList()));
+            }
+            for (GeneratedClassBuildItem i : result.consumeMulti(GeneratedClassBuildItem.class)) {
+                classOutput.writeClass(i.isApplicationClass(), i.getName(), i.getClassData());
+            }
+            for (GeneratedResourceBuildItem i : result.consumeMulti(GeneratedResourceBuildItem.class)) {
+                classOutput.writeResource(i.getName(), i.getClassData());
             }
 
             final Application application;
-            Class<? extends Application> appClass = loader
-                    .loadClass(result.consume(ApplicationClassNameBuildItem.class).getClassName())
-                    .asSubclass(Application.class);
+            final String className = result.consume(ApplicationClassNameBuildItem.class).getClassName();
             ClassLoader old = Thread.currentThread().getContextClassLoader();
             try {
                 Thread.currentThread().setContextClassLoader(loader);
+                Class<? extends Application> appClass;
+                try {
+                    // force init here
+                    appClass = Class.forName(className, true, loader).asSubclass(Application.class);
+                } catch (Throwable t) {
+                    // todo: dev mode expects run time config to be available immediately even if static init didn't complete.
+                    try {
+                        final Class<?> configClass = Class.forName(RunTimeConfigurationGenerator.CONFIG_CLASS_NAME, true,
+                                loader);
+                        configClass.getDeclaredMethod(RunTimeConfigurationGenerator.C_CREATE_RUN_TIME_CONFIG.getName())
+                                .invoke(null);
+                    } catch (Throwable t2) {
+                        t.addSuppressed(t2);
+                    }
+                    throw t;
+                }
                 application = appClass.newInstance();
                 application.start(null);
             } finally {

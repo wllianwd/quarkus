@@ -1,13 +1,9 @@
-# Docker image
-# Build a Docker image to deploy, run, or push to a container registry.
-# Add steps that use Docker Compose, tag images, push to a registry, run an image, and more:
-# https://docs.microsoft.com/azure/devops/pipelines/languages/docker
-
 trigger:
   batch: true
   branches:
     include:
-    - master
+      - master
+      - '1.1'
 
 pr:
   branches:
@@ -19,82 +15,29 @@ pr:
       - docs/src/main/asciidoc/images/*
       - README.md
       - CONTRIBUTING.md
+      - ADOPTERS.md
       - LICENSE.txt
       - dco.txt
+      - .github/ISSUE_TEMPLATE/*.md
+      - .dependabot/config.yml
 
-jobs:
-- job: Build_Native_Linux
-  timeoutInMinutes: 180
-  pool:
-    vmImage: 'Ubuntu 16.04'
+variables:
+  MAVEN_CACHE_FOLDER: $(Pipeline.Workspace)/.m2/repository/
+  MAVEN_OPTS: '-Dmaven.repo.local=$(MAVEN_CACHE_FOLDER)'
+  QUARKUS_LOCAL_REPO: $(MAVEN_CACHE_FOLDER)
+  # Force everything to use VMs if the expansion pool is disabled. Otherwise send PRs to the expansion pool and everything else to the hosted VMs
+  LINUX_USE_VMS: $[ or(eq(variables['quarkus_expansion_enabled'], 'false'), not(contains(variables['Build.SourceBranch'], '/pull/'))) ]
 
-  variables:
-    imageName: 'quarkus:$(build.buildId)'
-
-  steps:
-
-  - script: docker run --rm --publish 5432:5432 --name build-postgres -e POSTGRES_USER=hibernate_orm_test -e POSTGRES_PASSWORD=hibernate_orm_test -e POSTGRES_DB=hibernate_orm_test -d postgres:10.5
-    displayName: 'start postgres'
-
-  - script: docker run --rm --publish 8000:8000 --name build-dynamodb -d amazon/dynamodb-local:1.11.477
-    displayName: 'start dynamodb'
-
-  - task: Maven@3
-    displayName: 'Maven Build'
-    inputs:
-      goals: 'install'
-      options: '-B --settings azure-mvn-settings.xml -Dnative-image.docker-build -Dtest-postgresql -Dtest-elasticsearch -Dtest-dynamodb -Ddynamodb-local.port=8000 -Dnative-image.xmx=6g -Dnative -Dno-format'
-
-- job: Windows_Build
-  timeoutInMinutes: 60
-  pool:
-    vmImage: 'vs2017-win2016'
-
-  variables:
-    imageName: 'quarkus-windows:$(build.buildId)'
-
-  steps:
-
-  - task: Maven@3
-    displayName: 'Maven Build'
-    inputs:
-      goals: 'install'
-      options: '-B --settings azure-mvn-settings.xml -Dno-native -Dno-format'
-
-- job: Build_JDK11_Linux
-  timeoutInMinutes: 60
-  pool:
-    vmImage: 'Ubuntu 16.04'
-
-  variables:
-    imageName: 'quarkus-jdk11:$(build.buildId)'
-
-  steps:
-  - task: Maven@3
-    displayName: 'Maven Build'
-    inputs:
-      jdkVersionOption: '1.11'
-      goals: 'install'
-      options: '-B --settings azure-mvn-settings.xml -Dno-native -Dno-format'
-
-- job: Run_TCKs
-  timeoutInMinutes: 45
-  pool:
-    vmImage: 'Ubuntu 16.04'
-
-  variables:
-    imageName: 'quarkus:$(build.buildId)'
-
-  steps:
-
-  - task: Maven@3
-    displayName: 'Maven Install'
-    inputs:
-      goals: 'install'
-      options: '-B --settings azure-mvn-settings.xml -Dno-native -Dno-format -DskipTests -Dtcks'
-
-  - task: Maven@3
-    displayName: 'Maven Verify'
-    inputs:
-      goals: 'verify'
-      mavenPomFile: 'tcks/pom.xml'
+stages:
+  - template: ci-templates/stages.yml
+    parameters:
+      poolSettings:
+         vmImage: 'Ubuntu 16.04'
+      displayPrefix: '(Azure Hosted)'
+      expectUseVMs: true
+  - template: ci-templates/stages.yml
+    parameters:
+      poolSettings:
+        name: 'Expansion'
+      displayPrefix: '(Expansion)'
+      expectUseVMs: false      

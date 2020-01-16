@@ -8,7 +8,6 @@ import static io.quarkus.hibernate.search.elasticsearch.runtime.HibernateSearchC
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.function.BiConsumer;
-import java.util.function.Function;
 
 import org.hibernate.boot.Metadata;
 import org.hibernate.boot.spi.BootstrapContext;
@@ -53,23 +52,27 @@ public class HibernateSearchElasticsearchRecorder {
 
         @Override
         public void contributeBootProperties(BiConsumer<String, Object> propertyCollector) {
-            addConfig(propertyCollector, HibernateOrmMapperSpiSettings.Radicals.REFLECTION_STRATEGY,
+            addConfig(propertyCollector, HibernateOrmMapperSpiSettings.REFLECTION_STRATEGY,
                     HibernateOrmReflectionStrategyName.JAVA_LANG_REFLECT);
 
-            if (buildTimeConfig.defaultBackend.isPresent()) {
+            addConfig(propertyCollector,
+                    EngineSettings.BACKGROUND_FAILURE_HANDLER,
+                    buildTimeConfig.backgroundFailureHandler);
+
+            if (buildTimeConfig.additionalBackends.defaultBackend.isPresent()) {
                 // we have a named default backend
                 addConfig(propertyCollector, EngineSettings.DEFAULT_BACKEND,
-                        buildTimeConfig.defaultBackend.get());
-            } else if (buildTimeConfig.elasticsearch.version.isPresent()) {
+                        buildTimeConfig.additionalBackends.defaultBackend.get());
+            } else if (buildTimeConfig.defaultBackend.version.isPresent()) {
                 // we use the default backend configuration
                 addConfig(propertyCollector, EngineSettings.DEFAULT_BACKEND,
                         HibernateSearchElasticsearchRecorder.DEFAULT_BACKEND);
             }
 
             contributeBackendBuildTimeProperties(propertyCollector, HibernateSearchElasticsearchRecorder.DEFAULT_BACKEND,
-                    buildTimeConfig.elasticsearch);
+                    buildTimeConfig.defaultBackend);
 
-            for (Entry<String, ElasticsearchBackendBuildTimeConfig> backendEntry : buildTimeConfig.additionalBackends
+            for (Entry<String, ElasticsearchBackendBuildTimeConfig> backendEntry : buildTimeConfig.additionalBackends.backends
                     .entrySet()) {
                 contributeBackendBuildTimeProperties(propertyCollector, backendEntry.getKey(), backendEntry.getValue());
             }
@@ -85,15 +88,22 @@ public class HibernateSearchElasticsearchRecorder {
         @Override
         public void contributeRuntimeProperties(BiConsumer<String, Object> propertyCollector) {
             addConfig(propertyCollector,
-                    HibernateOrmMapperSettings.Radicals.AUTOMATIC_INDEXING_SYNCHRONIZATION_STRATEGY,
-                    runtimeConfig.elasticsearch.automaticIndexing.synchronizationStrategy);
+                    HibernateOrmMapperSettings.AUTOMATIC_INDEXING_SYNCHRONIZATION_STRATEGY,
+                    runtimeConfig.automaticIndexing.synchronization.strategy);
             addConfig(propertyCollector,
-                    HibernateOrmMapperSettings.Radicals.AUTOMATIC_INDEXING_ENABLE_DIRTY_CHECK,
-                    runtimeConfig.elasticsearch.automaticIndexing.enableDirtyCheck);
+                    HibernateOrmMapperSettings.AUTOMATIC_INDEXING_ENABLE_DIRTY_CHECK,
+                    runtimeConfig.automaticIndexing.enableDirtyCheck);
+            addConfig(propertyCollector,
+                    HibernateOrmMapperSettings.QUERY_LOADING_CACHE_LOOKUP_STRATEGY,
+                    runtimeConfig.queryLoading.cacheLookup.strategy);
+            addConfig(propertyCollector,
+                    HibernateOrmMapperSettings.QUERY_LOADING_FETCH_SIZE,
+                    runtimeConfig.queryLoading.fetchSize);
 
-            contributeBackendRuntimeProperties(propertyCollector, DEFAULT_BACKEND, runtimeConfig.elasticsearch);
+            contributeBackendRuntimeProperties(propertyCollector, DEFAULT_BACKEND, runtimeConfig.defaultBackend);
 
-            for (Entry<String, ElasticsearchBackendRuntimeConfig> backendEntry : runtimeConfig.additionalBackends.entrySet()) {
+            for (Entry<String, ElasticsearchBackendRuntimeConfig> backendEntry : runtimeConfig.additionalBackends.backends
+                    .entrySet()) {
                 contributeBackendRuntimeProperties(propertyCollector, backendEntry.getKey(), backendEntry.getValue());
             }
         }
@@ -106,22 +116,22 @@ public class HibernateSearchElasticsearchRecorder {
                     elasticsearchBackendConfig.version);
             addBackendConfig(propertyCollector, backendName,
                     ElasticsearchBackendSettings.ANALYSIS_CONFIGURER,
-                    elasticsearchBackendConfig.analysisConfigurer,
+                    elasticsearchBackendConfig.analysis.configurer,
                     Optional::isPresent, c -> c.get().getName());
         }
 
         private void contributeBackendRuntimeProperties(BiConsumer<String, Object> propertyCollector, String backendName,
                 ElasticsearchBackendRuntimeConfig elasticsearchBackendConfig) {
             addBackendConfig(propertyCollector, backendName, ElasticsearchBackendSettings.HOSTS,
-                    elasticsearchBackendConfig.hosts,
-                    v -> (!v.isEmpty() && !(v.size() == 1 && v.get(0).isEmpty())), Function.identity());
+                    elasticsearchBackendConfig.hosts);
+            addBackendConfig(propertyCollector, backendName, ElasticsearchBackendSettings.PROTOCOL,
+                    elasticsearchBackendConfig.protocol.getHibernateSearchString());
             addBackendConfig(propertyCollector, backendName, ElasticsearchBackendSettings.USERNAME,
                     elasticsearchBackendConfig.username);
             addBackendConfig(propertyCollector, backendName, ElasticsearchBackendSettings.PASSWORD,
                     elasticsearchBackendConfig.password);
             addBackendConfig(propertyCollector, backendName, ElasticsearchBackendSettings.CONNECTION_TIMEOUT,
-                    elasticsearchBackendConfig.connectionTimeout,
-                    Optional::isPresent, d -> d.get().toMillis());
+                    elasticsearchBackendConfig.connectionTimeout.toMillis());
             addBackendConfig(propertyCollector, backendName, ElasticsearchBackendSettings.MAX_CONNECTIONS,
                     elasticsearchBackendConfig.maxConnections);
             addBackendConfig(propertyCollector, backendName, ElasticsearchBackendSettings.MAX_CONNECTIONS_PER_ROUTE,
@@ -129,11 +139,10 @@ public class HibernateSearchElasticsearchRecorder {
 
             addBackendConfig(propertyCollector, backendName, ElasticsearchBackendSettings.DISCOVERY_ENABLED,
                     elasticsearchBackendConfig.discovery.enabled);
-            addBackendConfig(propertyCollector, backendName, ElasticsearchBackendSettings.DISCOVERY_REFRESH_INTERVAL,
-                    elasticsearchBackendConfig.discovery.refreshInterval,
-                    Optional::isPresent, d -> d.get().getSeconds());
-            addBackendConfig(propertyCollector, backendName, ElasticsearchBackendSettings.DISCOVERY_SCHEME,
-                    elasticsearchBackendConfig.discovery.defaultScheme);
+            if (elasticsearchBackendConfig.discovery.enabled) {
+                addBackendConfig(propertyCollector, backendName, ElasticsearchBackendSettings.DISCOVERY_REFRESH_INTERVAL,
+                        elasticsearchBackendConfig.discovery.refreshInterval.getSeconds());
+            }
 
             addBackendDefaultIndexConfig(propertyCollector, backendName, ElasticsearchIndexSettings.LIFECYCLE_STRATEGY,
                     elasticsearchBackendConfig.indexDefaults.lifecycle.strategy);
@@ -145,7 +154,7 @@ public class HibernateSearchElasticsearchRecorder {
                     elasticsearchBackendConfig.indexDefaults.lifecycle.requiredStatusWaitTimeout, Optional::isPresent,
                     d -> d.get().toMillis());
 
-            for (Entry<String, ElasticsearchIndexConfig> indexConfigEntry : runtimeConfig.elasticsearch.indexes.entrySet()) {
+            for (Entry<String, ElasticsearchIndexConfig> indexConfigEntry : runtimeConfig.defaultBackend.indexes.entrySet()) {
                 String indexName = indexConfigEntry.getKey();
                 ElasticsearchIndexConfig indexConfig = indexConfigEntry.getValue();
 

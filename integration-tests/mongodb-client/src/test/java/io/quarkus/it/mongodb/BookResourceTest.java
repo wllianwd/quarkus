@@ -1,6 +1,8 @@
 package io.quarkus.it.mongodb;
 
 import static io.restassured.RestAssured.get;
+import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.hamcrest.Matchers.is;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -10,12 +12,11 @@ import java.util.List;
 import javax.json.bind.Jsonb;
 import javax.json.bind.JsonbBuilder;
 
+import org.jboss.logging.Logger;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import de.flapdoodle.embed.mongo.MongodExecutable;
 import de.flapdoodle.embed.mongo.MongodStarter;
@@ -26,16 +27,16 @@ import de.flapdoodle.embed.mongo.distribution.Version;
 import de.flapdoodle.embed.process.runtime.Network;
 import io.quarkus.test.junit.QuarkusTest;
 import io.restassured.RestAssured;
+import io.restassured.common.mapper.TypeRef;
 import io.restassured.mapper.ObjectMapper;
 import io.restassured.mapper.ObjectMapperDeserializationContext;
 import io.restassured.mapper.ObjectMapperSerializationContext;
-import io.restassured.mapper.TypeRef;
 import io.restassured.response.Response;
 
 @QuarkusTest
 class BookResourceTest {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(BookResourceTest.class);
+    private static final Logger LOGGER = Logger.getLogger(BookResourceTest.class);
     private static MongodExecutable MONGO;
 
     private static Jsonb jsonb;
@@ -66,7 +67,7 @@ class BookResourceTest {
     public static void startMongoDatabase() throws IOException {
         Version.Main version = Version.Main.V4_0;
         int port = 27018;
-        LOGGER.info("Starting Mongo {} on port {}", version, port);
+        LOGGER.infof("Starting Mongo %s on port %s", version, port);
         IMongodConfig config = new MongodConfigBuilder()
                 .version(version)
                 .net(new Net(port, Network.localhostIsIPv6()))
@@ -141,6 +142,14 @@ class BookResourceTest {
     @Test
     public void testReactiveClients() {
         callTheEndpoint("/reactive-books");
+    }
+
+    @Test
+    public void health() throws Exception {
+        RestAssured.when().get("/health/ready").then()
+                .body("status", is("UP"),
+                        "checks.status", containsInAnyOrder("UP"),
+                        "checks.name", containsInAnyOrder("MongoDB connection health check"));
     }
 
 }

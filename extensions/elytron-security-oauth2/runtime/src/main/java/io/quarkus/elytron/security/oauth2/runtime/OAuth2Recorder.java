@@ -19,18 +19,13 @@ import javax.net.ssl.TrustManagerFactory;
 
 import org.wildfly.security.auth.realm.token.TokenSecurityRealm;
 import org.wildfly.security.auth.realm.token.validator.OAuth2IntrospectValidator;
-import org.wildfly.security.auth.server.SecurityDomain;
 import org.wildfly.security.auth.server.SecurityRealm;
 import org.wildfly.security.authz.Attributes;
 
-import io.quarkus.arc.runtime.BeanContainer;
 import io.quarkus.elytron.security.oauth2.runtime.auth.ElytronOAuth2CallerPrincipal;
-import io.quarkus.elytron.security.oauth2.runtime.auth.OAuth2AuthMethodExtension;
-import io.quarkus.elytron.security.oauth2.runtime.auth.OAuth2IdentityManager;
+import io.quarkus.elytron.security.oauth2.runtime.auth.OAuth2Augmentor;
 import io.quarkus.runtime.RuntimeValue;
 import io.quarkus.runtime.annotations.Recorder;
-import io.undertow.security.idm.IdentityManager;
-import io.undertow.servlet.ServletExtension;
 
 @Recorder
 public class OAuth2Recorder {
@@ -44,6 +39,8 @@ public class OAuth2Recorder {
 
         if (config.caCertFile.isPresent()) {
             validatorBuilder.useSslContext(createSSLContext(config));
+        } else {
+            validatorBuilder.useSslContext(SSLContext.getDefault());
         }
 
         OAuth2IntrospectValidator validator = validatorBuilder.build();
@@ -89,27 +86,8 @@ public class OAuth2Recorder {
         }
     }
 
-    /**
-     * Create an OAuth2IdentityManager for the given SecurityDomain
-     *
-     * @param domain - configured SecurityDomain
-     * @return runtime value for OAuth2IdentityManager
-     */
-    public IdentityManager createIdentityManager(RuntimeValue<SecurityDomain> domain, OAuth2Config config) {
-        return new OAuth2IdentityManager(domain.getValue(), config.roleClaim);
-    }
-
-    /**
-     * Create the JWTAuthMethodExtension servlet extension
-     *
-     * @param authMechanism - name to use for MP-JWT auth mechanism
-     * @param container - bean container to create JWTAuthMethodExtension bean
-     * @return JWTAuthMethodExtension
-     */
-    public ServletExtension createAuthExtension(String authMechanism, BeanContainer container) {
-        OAuth2AuthMethodExtension authExt = container.instance(OAuth2AuthMethodExtension.class);
-        authExt.setAuthMechanism(authMechanism);
-        return authExt;
+    public RuntimeValue<OAuth2Augmentor> augmentor(OAuth2Config config) {
+        return new RuntimeValue<>(new OAuth2Augmentor(config.roleClaim));
     }
 
 }

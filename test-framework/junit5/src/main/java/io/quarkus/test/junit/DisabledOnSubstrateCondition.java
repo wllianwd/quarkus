@@ -14,6 +14,11 @@ import org.junit.platform.commons.util.StringUtils;
 
 import io.quarkus.test.junit.QuarkusTestExtension.ExtensionState;
 
+/**
+ * @deprecated Use {@link DisabledOnNativeImageCondition} instead.
+ *
+ */
+@Deprecated
 public class DisabledOnSubstrateCondition implements ExecutionCondition {
 
     private static final ConditionEvaluationResult ENABLED = ConditionEvaluationResult

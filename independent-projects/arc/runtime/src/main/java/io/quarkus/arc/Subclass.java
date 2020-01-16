@@ -1,14 +1,10 @@
 package io.quarkus.arc;
 
 /**
- * Represents an intercepted subclass.
+ * A marker interface that represents an intercepted subclass.
  *
  * @author Martin Kouba
  */
 public interface Subclass {
-
-    default void destroy() {
-        // Noop
-    }
 
 }

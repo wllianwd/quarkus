@@ -1,10 +1,8 @@
 package io.quarkus.infinispan.client.runtime;
 
-import java.io.IOException;
 import java.io.InputStream;
 import java.lang.annotation.Annotation;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Properties;
 import java.util.Scanner;
 import java.util.Set;
@@ -33,8 +31,9 @@ import org.infinispan.counter.api.CounterManager;
 import org.infinispan.protostream.BaseMarshaller;
 import org.infinispan.protostream.FileDescriptorSource;
 import org.infinispan.protostream.SerializationContext;
+import org.infinispan.protostream.SerializationContextInitializer;
+import org.infinispan.protostream.WrappedMessage;
 import org.infinispan.query.remote.client.ProtobufMetadataManagerConstants;
-import org.infinispan.query.remote.client.impl.MarshallerRegistration;
 
 /**
  * Produces a configured remote cache manager instance
@@ -44,6 +43,7 @@ public class InfinispanClientProducer {
     private static final Log log = LogFactory.getLog(InfinispanClientProducer.class);
 
     public static final String PROTOBUF_FILE_PREFIX = "infinispan.client.hotrod.protofile.";
+    public static final String PROTOBUF_INITIALIZERS = "infinispan.client.hotrod.proto-initializers";
 
     @Inject
     private BeanManager beanManager;
@@ -69,6 +69,18 @@ public class InfinispanClientProducer {
 
         // TODO: do we want to automatically register all the proto file definitions?
         RemoteCache<String, String> protobufMetadataCache = null;
+
+        Set<SerializationContextInitializer> initializers = (Set) properties.remove(PROTOBUF_INITIALIZERS);
+        if (initializers != null) {
+            for (SerializationContextInitializer initializer : initializers) {
+                if (protobufMetadataCache == null) {
+                    protobufMetadataCache = cacheManager.getCache(
+                            ProtobufMetadataManagerConstants.PROTOBUF_METADATA_CACHE_NAME);
+                }
+                protobufMetadataCache.put(initializer.getProtoFileName(), initializer.getProtoFile());
+            }
+        }
+
         for (Map.Entry<Object, Object> property : properties.entrySet()) {
             Object key = property.getKey();
             if (key instanceof String) {
@@ -111,14 +123,14 @@ public class InfinispanClientProducer {
      * @param properties the properties to be updated for querying
      */
     public static void handleProtoStreamRequirements(Properties properties) {
-        // We only apply this if we are substrate in build time to apply to the properties
+        // We only apply this if we are in native mode in build time to apply to the properties
         // Note that the other half is done in QuerySubstitutions.SubstituteMarshallerRegistration class
         // Note that the registration of these files are done twice in normal VM mode
         // (once during init and once at runtime)
-        properties.put(InfinispanClientProducer.PROTOBUF_FILE_PREFIX + MarshallerRegistration.QUERY_PROTO_RES,
-                getContents(MarshallerRegistration.QUERY_PROTO_RES));
-        properties.put(InfinispanClientProducer.PROTOBUF_FILE_PREFIX + MarshallerRegistration.MESSAGE_PROTO_RES,
-                getContents(MarshallerRegistration.MESSAGE_PROTO_RES));
+        properties.put(InfinispanClientProducer.PROTOBUF_FILE_PREFIX + WrappedMessage.PROTO_FILE,
+                getContents("/" + WrappedMessage.PROTO_FILE));
+        String queryProtoFile = "org/infinispan/query/remote/client/query.proto";
+        properties.put(InfinispanClientProducer.PROTOBUF_FILE_PREFIX + queryProtoFile, getContents("/" + queryProtoFile));
     }
 
     /**
@@ -147,17 +159,36 @@ public class InfinispanClientProducer {
         Object marshallerInstance = properties.remove(ConfigurationProperties.MARSHALLER);
         if (marshallerInstance != null) {
             if (marshallerInstance instanceof ProtoStreamMarshaller) {
-                handleProtoStreamMarshaller(marshallerInstance, properties, beanManager);
+                handleProtoStreamMarshaller((ProtoStreamMarshaller) marshallerInstance, properties, beanManager);
             }
             builder.marshaller((Marshaller) marshallerInstance);
         }
 
-        // Override serverList property value at runtime if such configuration exists
         if (infinispanClientRuntimeConfig != null) {
-            Optional<String> runtimeServerList = infinispanClientRuntimeConfig.serverList;
-            if (runtimeServerList.isPresent()) {
-                properties.put(ConfigurationProperties.SERVER_LIST, runtimeServerList.get());
-            }
+
+            infinispanClientRuntimeConfig.serverList
+                    .ifPresent(v -> properties.put(ConfigurationProperties.SERVER_LIST, v));
+
+            infinispanClientRuntimeConfig.clientIntelligence
+                    .ifPresent(v -> properties.put(ConfigurationProperties.CLIENT_INTELLIGENCE, v));
+
+            infinispanClientRuntimeConfig.useAuth
+                    .ifPresent(v -> properties.put(ConfigurationProperties.USE_AUTH, v));
+            infinispanClientRuntimeConfig.authUsername
+                    .ifPresent(v -> properties.put(ConfigurationProperties.AUTH_USERNAME, v));
+            infinispanClientRuntimeConfig.authPassword
+                    .ifPresent(v -> properties.put(ConfigurationProperties.AUTH_PASSWORD, v));
+            infinispanClientRuntimeConfig.authRealm
+                    .ifPresent(v -> properties.put(ConfigurationProperties.AUTH_REALM, v));
+            infinispanClientRuntimeConfig.authServerName
+                    .ifPresent(v -> properties.put(ConfigurationProperties.AUTH_SERVER_NAME, v));
+            infinispanClientRuntimeConfig.authClientSubject
+                    .ifPresent(v -> properties.put(ConfigurationProperties.AUTH_CLIENT_SUBJECT, v));
+            infinispanClientRuntimeConfig.authCallbackHandler
+                    .ifPresent(v -> properties.put(ConfigurationProperties.AUTH_CALLBACK_HANDLER, v));
+
+            infinispanClientRuntimeConfig.saslMechanism
+                    .ifPresent(v -> properties.put(ConfigurationProperties.SASL_MECHANISM, v));
         }
 
         builder.withProperties(properties);
@@ -165,9 +196,18 @@ public class InfinispanClientProducer {
         return builder;
     }
 
-    private static void handleProtoStreamMarshaller(Object marshallerInstance, Properties properties, BeanManager beanManager) {
-        ProtoStreamMarshaller marshaller = (ProtoStreamMarshaller) marshallerInstance;
+    private static void handleProtoStreamMarshaller(ProtoStreamMarshaller marshaller, Properties properties,
+            BeanManager beanManager) {
         SerializationContext serializationContext = marshaller.getSerializationContext();
+
+        Set<SerializationContextInitializer> initializers = (Set) properties
+                .get(InfinispanClientProducer.PROTOBUF_INITIALIZERS);
+        if (initializers != null) {
+            initializers.forEach(sci -> {
+                sci.registerSchema(serializationContext);
+                sci.registerMarshallers(serializationContext);
+            });
+        }
 
         FileDescriptorSource fileDescriptorSource = null;
         for (Map.Entry<Object, Object> property : properties.entrySet()) {
@@ -185,21 +225,20 @@ public class InfinispanClientProducer {
             }
         }
 
-        try {
-            if (fileDescriptorSource != null) {
-                serializationContext.registerProtoFiles(fileDescriptorSource);
-            }
+        if (fileDescriptorSource != null) {
+            serializationContext.registerProtoFiles(fileDescriptorSource);
+        }
 
-            Set<Bean<FileDescriptorSource>> protoFileBeans = (Set) beanManager.getBeans(FileDescriptorSource.class);
-            for (Bean<FileDescriptorSource> bean : protoFileBeans) {
-                CreationalContext<FileDescriptorSource> ctx = beanManager.createCreationalContext(bean);
-                FileDescriptorSource fds = (FileDescriptorSource) beanManager.getReference(bean, FileDescriptorSource.class,
-                        ctx);
-                serializationContext.registerProtoFiles(fds);
+        Set<Bean<FileDescriptorSource>> protoFileBeans = (Set) beanManager.getBeans(FileDescriptorSource.class);
+        for (Bean<FileDescriptorSource> bean : protoFileBeans) {
+            CreationalContext<FileDescriptorSource> ctx = beanManager.createCreationalContext(bean);
+            FileDescriptorSource fds = (FileDescriptorSource) beanManager.getReference(bean, FileDescriptorSource.class,
+                    ctx);
+            serializationContext.registerProtoFiles(fds);
+            // Register all of the fds so they can be queried
+            for (Map.Entry<String, char[]> fdEntry : fds.getFileDescriptors().entrySet()) {
+                properties.put(PROTOBUF_FILE_PREFIX + fdEntry.getKey(), new String(fdEntry.getValue()));
             }
-        } catch (IOException e) {
-            // TODO: pick a better exception
-            throw new RuntimeException(e);
         }
 
         Set<Bean<BaseMarshaller>> beans = (Set) beanManager.getBeans(BaseMarshaller.class);
@@ -218,16 +257,27 @@ public class InfinispanClientProducer {
         }
     }
 
-    @Remote
+    @SuppressWarnings("deprecation")
+    @io.quarkus.infinispan.client.Remote
+    @io.quarkus.infinispan.client.runtime.Remote
     @Produces
-    public <K, V> RemoteCache<K, V> getRemoteCache(InjectionPoint injectionPoint) {
-        final RemoteCacheManager cacheManager = remoteCacheManager();
+    public <K, V> RemoteCache<K, V> getRemoteCache(InjectionPoint injectionPoint, RemoteCacheManager cacheManager) {
         Set<Annotation> annotationSet = injectionPoint.getQualifiers();
-        final Remote remote = getRemoteAnnotation(annotationSet);
+
+        // Deal with the regular annotation first
+        final io.quarkus.infinispan.client.Remote remote = getRemoteAnnotation(annotationSet);
 
         if (remote != null && !remote.value().isEmpty()) {
             return cacheManager.getCache(remote.value());
         }
+
+        // Then deal with the deprecated one
+        final io.quarkus.infinispan.client.runtime.Remote deprecatedRemote = getDeprecatedRemoteAnnotation(annotationSet);
+
+        if (deprecatedRemote != null && !deprecatedRemote.value().isEmpty()) {
+            return cacheManager.getCache(deprecatedRemote.value());
+        }
+
         return cacheManager.getCache();
     }
 
@@ -250,15 +300,30 @@ public class InfinispanClientProducer {
     }
 
     /**
-     * Retrieves the {@link Remote} annotation instance from the set
+     * Retrieves the deprecated {@link Remote} annotation instance from the set
      *
      * @param annotationSet the annotation set.
      * @return the {@link Remote} annotation instance or {@code null} if not found.
      */
-    private Remote getRemoteAnnotation(Set<Annotation> annotationSet) {
+    private io.quarkus.infinispan.client.Remote getRemoteAnnotation(Set<Annotation> annotationSet) {
         for (Annotation annotation : annotationSet) {
-            if (annotation instanceof Remote) {
-                return (Remote) annotation;
+            if (annotation instanceof io.quarkus.infinispan.client.Remote) {
+                return (io.quarkus.infinispan.client.Remote) annotation;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Retrieves the deprecated {@link Remote} annotation instance from the set
+     *
+     * @param annotationSet the annotation set.
+     * @return the {@link Remote} annotation instance or {@code null} if not found.
+     */
+    private io.quarkus.infinispan.client.runtime.Remote getDeprecatedRemoteAnnotation(Set<Annotation> annotationSet) {
+        for (Annotation annotation : annotationSet) {
+            if (annotation instanceof io.quarkus.infinispan.client.runtime.Remote) {
+                return (io.quarkus.infinispan.client.runtime.Remote) annotation;
             }
         }
         return null;

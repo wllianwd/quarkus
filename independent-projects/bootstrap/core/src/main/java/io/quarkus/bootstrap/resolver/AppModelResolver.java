@@ -97,7 +97,7 @@ public interface AppModelResolver {
      * @param fromVersionIncluded  whether the specified lowest version should be included in the range
      * @param upToVersion  the highest version of the range
      * @param upToVersionIncluded  whether the specified highest version should be included in the range
-     * @return  the next version from the specified range or null if the next version is not avaiable
+     * @return  the next version from the specified range or null if the next version is not available
      * @throws AppModelResolverException  in case of a failure
      */
     String getNextVersion(AppArtifact artifact, String fromVersion, boolean fromVersionIncluded, String upToVersion, boolean upToVersionIncluded) throws AppModelResolverException;
@@ -113,4 +113,14 @@ public interface AppModelResolver {
      * @throws AppModelResolverException  in case of a failure
      */
     String getLatestVersion(AppArtifact artifact, String upToVersion, boolean inclusive) throws AppModelResolverException;
+
+    /**
+     * Resolves the latest version from the specified range. The version of the artifact is ignored.
+     *
+     * @param appArtifact  the artifact
+     * @param range  the version range
+     * @return  the latest version of the artifact from the range or null, if no version was found for the specified range
+     * @throws AppModelResolverException  in case of a failure
+     */
+    String getLatestVersionFromRange(AppArtifact appArtifact, String range) throws AppModelResolverException;
 }

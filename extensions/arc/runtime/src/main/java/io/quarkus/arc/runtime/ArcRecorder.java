@@ -5,6 +5,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
 import java.util.function.Supplier;
 
 import org.jboss.logging.Logger;
@@ -40,6 +41,10 @@ public class ArcRecorder {
         return container;
     }
 
+    public void initExecutor(ExecutorService executor) {
+        Arc.setExecutor(executor);
+    }
+
     public void initSupplierBeans(Map<String, Supplier<Object>> beans) {
         supplierMap = beans;
     }
@@ -47,6 +52,10 @@ public class ArcRecorder {
     public BeanContainer initBeanContainer(ArcContainer container, List<BeanContainerListener> listeners,
             Collection<String> removedBeanTypes)
             throws Exception {
+
+        if (container == null) {
+            throw new IllegalArgumentException("Arc container was null");
+        }
         BeanContainer beanContainer = new BeanContainer() {
             @Override
             public <T> Factory<T> instanceFactory(Class<T> type, Annotation... qualifiers) {

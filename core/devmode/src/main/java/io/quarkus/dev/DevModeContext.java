@@ -5,7 +5,9 @@ import java.io.Serializable;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -22,6 +24,22 @@ public class DevModeContext implements Serializable {
     private final List<ModuleInfo> modules = new ArrayList<>();
     private final Map<String, String> systemProperties = new HashMap<>();
     private final Map<String, String> buildSystemProperties = new HashMap<>();
+    private String sourceEncoding;
+
+    private final List<File> classesRoots = new ArrayList<>();
+    private File frameworkClassesDir;
+    private File cacheDir;
+    private boolean test;
+    private boolean abortOnFailedStart;
+    // the jar file which is used to launch the DevModeMain
+    private File devModeRunnerJarFile;
+
+    private List<String> compilerOptions;
+    private String sourceJavaVersion;
+    private String targetJvmVersion;
+
+    private List<String> compilerPluginArtifacts;
+    private List<String> compilerPluginsOptions;
 
     public List<URL> getClassPath() {
         return classPath;
@@ -37,6 +55,98 @@ public class DevModeContext implements Serializable {
 
     public Map<String, String> getBuildSystemProperties() {
         return buildSystemProperties;
+    }
+
+    public String getSourceEncoding() {
+        return sourceEncoding;
+    }
+
+    public void setSourceEncoding(String sourceEncoding) {
+        this.sourceEncoding = sourceEncoding;
+    }
+
+    public List<File> getClassesRoots() {
+        return classesRoots;
+    }
+
+    public File getFrameworkClassesDir() {
+        return frameworkClassesDir;
+    }
+
+    public void setFrameworkClassesDir(File frameworkClassesDir) {
+        this.frameworkClassesDir = frameworkClassesDir;
+    }
+
+    public File getCacheDir() {
+        return cacheDir;
+    }
+
+    public void setCacheDir(File cacheDir) {
+        this.cacheDir = cacheDir;
+    }
+
+    public boolean isTest() {
+        return test;
+    }
+
+    public void setTest(boolean test) {
+        this.test = test;
+    }
+
+    public boolean isAbortOnFailedStart() {
+        return abortOnFailedStart;
+    }
+
+    public void setAbortOnFailedStart(boolean abortOnFailedStart) {
+        this.abortOnFailedStart = abortOnFailedStart;
+    }
+
+    public List<String> getCompilerOptions() {
+        return compilerOptions;
+    }
+
+    public void setCompilerOptions(List<String> compilerOptions) {
+        this.compilerOptions = compilerOptions;
+    }
+
+    public String getSourceJavaVersion() {
+        return sourceJavaVersion;
+    }
+
+    public void setSourceJavaVersion(String sourceJavaVersion) {
+        this.sourceJavaVersion = sourceJavaVersion;
+    }
+
+    public String getTargetJvmVersion() {
+        return targetJvmVersion;
+    }
+
+    public void setTargetJvmVersion(String targetJvmVersion) {
+        this.targetJvmVersion = targetJvmVersion;
+    }
+
+    public List<String> getCompilerPluginArtifacts() {
+        return compilerPluginArtifacts;
+    }
+
+    public void setCompilerPluginArtifacts(List<String> compilerPluginArtifacts) {
+        this.compilerPluginArtifacts = compilerPluginArtifacts;
+    }
+
+    public List<String> getCompilerPluginsOptions() {
+        return compilerPluginsOptions;
+    }
+
+    public void setCompilerPluginsOptions(List<String> compilerPluginsOptions) {
+        this.compilerPluginsOptions = compilerPluginsOptions;
+    }
+
+    public File getDevModeRunnerJarFile() {
+        return devModeRunnerJarFile;
+    }
+
+    public void setDevModeRunnerJarFile(final File devModeRunnerJarFile) {
+        this.devModeRunnerJarFile = devModeRunnerJarFile;
     }
 
     public static class ModuleInfo implements Serializable {
@@ -55,7 +165,7 @@ public class DevModeContext implements Serializable {
                 String resourcePath) {
             this.name = name;
             this.projectDirectory = projectDirectory;
-            this.sourcePaths = sourcePaths;
+            this.sourcePaths = sourcePaths == null ? new HashSet<>() : new HashSet<>(sourcePaths);
             this.classesPath = classesPath;
             this.resourcePath = resourcePath;
         }
@@ -69,7 +179,7 @@ public class DevModeContext implements Serializable {
         }
 
         public Set<String> getSourcePaths() {
-            return sourcePaths;
+            return Collections.unmodifiableSet(sourcePaths);
         }
 
         public void addSourcePaths(Collection<String> additionalPaths) {
@@ -84,5 +194,4 @@ public class DevModeContext implements Serializable {
             return resourcePath;
         }
     }
-
 }

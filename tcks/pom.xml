@@ -15,8 +15,15 @@
     
     <modules>
         <module>microprofile-config</module>
+        <module>microprofile-context-propagation</module>
+        <module>microprofile-fault-tolerance</module>
         <module>microprofile-health</module>
+        <module>microprofile-jwt</module>
+        <module>microprofile-metrics</module>
+        <module>microprofile-reactive-messaging</module>
         <module>microprofile-rest-client</module>
+        <module>microprofile-openapi</module>
+        <module>microprofile-opentracing</module>
     </modules>
 
     <properties>
@@ -35,5 +42,17 @@
             </plugin>
         </plugins>
     </build>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.jboss.arquillian</groupId>
+                <artifactId>arquillian-bom</artifactId>
+                <version>${arquillian.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
 </project>

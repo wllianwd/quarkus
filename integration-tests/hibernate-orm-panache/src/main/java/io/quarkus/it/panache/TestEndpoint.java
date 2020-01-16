@@ -1,5 +1,10 @@
 package io.quarkus.it.panache;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.List;
@@ -7,6 +12,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import javax.inject.Inject;
+import javax.persistence.LockModeType;
 import javax.persistence.NoResultException;
 import javax.persistence.NonUniqueResultException;
 import javax.persistence.PersistenceException;
@@ -15,17 +21,22 @@ import javax.ws.rs.GET;
 import javax.ws.rs.Path;
 import javax.ws.rs.Produces;
 import javax.ws.rs.core.MediaType;
+import javax.xml.bind.annotation.XmlAttribute;
+import javax.xml.bind.annotation.XmlElements;
+import javax.xml.bind.annotation.XmlTransient;
 
 import org.hibernate.engine.spi.SelfDirtinessTracker;
+import org.hibernate.jpa.QueryHints;
 import org.junit.jupiter.api.Assertions;
 
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import io.quarkus.panache.common.Page;
 import io.quarkus.panache.common.Parameters;
 import io.quarkus.panache.common.Sort;
+import io.quarkus.panache.common.exception.PanacheQueryException;
 
 /**
- * Various tests covering Panache functionality. All tests should work in both standard JVM and SubstrateVM.
+ * Various tests covering Panache functionality. All tests should work in both standard JVM and in native mode.
  */
 @Path("test")
 public class TestEndpoint {
@@ -87,6 +98,15 @@ public class TestEndpoint {
         Assertions.assertEquals(1, persons.size());
         Assertions.assertEquals(person, persons.get(0));
 
+        persons = Person.find("name = ?1", "stef").withLock(LockModeType.PESSIMISTIC_READ).list();
+        Assertions.assertEquals(1, persons.size());
+        Assertions.assertEquals(person, persons.get(0));
+
+        // next calls to this query will be cached
+        persons = Person.find("name = ?1", "stef").withHint(QueryHints.HINT_CACHEABLE, "true").list();
+        Assertions.assertEquals(1, persons.size());
+        Assertions.assertEquals(person, persons.get(0));
+
         persons = Person.list("name = ?1", "stef");
         Assertions.assertEquals(1, persons.size());
         Assertions.assertEquals(person, persons.get(0));
@@ -133,6 +153,18 @@ public class TestEndpoint {
         Assertions.assertEquals(person, byId);
         Assertions.assertEquals("Person<" + person.id + ">", byId.toString());
 
+        byId = Person.<Person> findByIdOptional(person.id).get();
+        Assertions.assertEquals(person, byId);
+        Assertions.assertEquals("Person<" + person.id + ">", byId.toString());
+
+        byId = Person.findById(person.id, LockModeType.PESSIMISTIC_READ);
+        Assertions.assertEquals(person, byId);
+        Assertions.assertEquals("Person<" + person.id + ">", byId.toString());
+
+        byId = Person.<Person> findByIdOptional(person.id, LockModeType.PESSIMISTIC_READ).get();
+        Assertions.assertEquals(person, byId);
+        Assertions.assertEquals("Person<" + person.id + ">", byId.toString());
+
         person.delete();
         Assertions.assertEquals(0, Person.count());
 
@@ -176,7 +208,11 @@ public class TestEndpoint {
 
         Assertions.assertNotNull(Person.findAll().firstResult());
 
+        Assertions.assertNotNull(Person.findAll().firstResultOptional().get());
+
         Assertions.assertEquals(7, Person.deleteAll());
+
+        testUpdate();
 
         // persistAndFlush
         Person person1 = new Person();
@@ -194,6 +230,144 @@ public class TestEndpoint {
         }
 
         return "OK";
+    }
+
+    private void testUpdate() {
+        makeSavedPerson("p1");
+        makeSavedPerson("p2");
+
+        int updateByIndexParameter = Person.update("update from Person2 p set p.name = 'stefNEW' where p.name = ?1", "stefp1");
+        Assertions.assertEquals(1, updateByIndexParameter, "More than one Person updated");
+
+        int updateByNamedParameter = Person.update("update from Person2 p set p.name = 'stefNEW' where p.name = :pName",
+                Parameters.with("pName", "stefp2").map());
+        Assertions.assertEquals(1, updateByNamedParameter, "More than one Person updated");
+
+        Assertions.assertEquals(2, Person.deleteAll());
+
+        makeSavedPerson("p1");
+        makeSavedPerson("p2");
+
+        updateByIndexParameter = Person.update("from Person2 p set p.name = 'stefNEW' where p.name = ?1", "stefp1");
+        Assertions.assertEquals(1, updateByIndexParameter, "More than one Person updated");
+
+        updateByNamedParameter = Person.update("from Person2 p set p.name = 'stefNEW' where p.name = :pName",
+                Parameters.with("pName", "stefp2").map());
+        Assertions.assertEquals(1, updateByNamedParameter, "More than one Person updated");
+
+        Assertions.assertEquals(2, Person.deleteAll());
+
+        makeSavedPerson("p1");
+        makeSavedPerson("p2");
+
+        updateByIndexParameter = Person.update("set name = 'stefNEW' where name = ?1", "stefp1");
+        Assertions.assertEquals(1, updateByIndexParameter, "More than one Person updated");
+
+        updateByNamedParameter = Person.update("set name = 'stefNEW' where name = :pName",
+                Parameters.with("pName", "stefp2").map());
+        Assertions.assertEquals(1, updateByNamedParameter, "More than one Person updated");
+
+        Assertions.assertEquals(2, Person.deleteAll());
+
+        makeSavedPerson("p1");
+        makeSavedPerson("p2");
+
+        updateByIndexParameter = Person.update("name = 'stefNEW' where name = ?1", "stefp1");
+        Assertions.assertEquals(1, updateByIndexParameter, "More than one Person updated");
+
+        updateByNamedParameter = Person.update("name = 'stefNEW' where name = :pName",
+                Parameters.with("pName", "stefp2").map());
+        Assertions.assertEquals(1, updateByNamedParameter, "More than one Person updated");
+
+        Assertions.assertEquals(2, Person.deleteAll());
+
+        makeSavedPerson("p1");
+        makeSavedPerson("p2");
+
+        updateByIndexParameter = Person.update("name = 'stefNEW' where name = ?1", "stefp1");
+        Assertions.assertEquals(1, updateByIndexParameter, "More than one Person updated");
+
+        updateByNamedParameter = Person.update("name = 'stefNEW' where name = :pName",
+                Parameters.with("pName", "stefp2"));
+        Assertions.assertEquals(1, updateByNamedParameter, "More than one Person updated");
+
+        Assertions.assertEquals(2, Person.deleteAll());
+
+        Assertions.assertThrows(PanacheQueryException.class, () -> Person.update(null),
+                "PanacheQueryException should have thrown");
+
+        Assertions.assertThrows(PanacheQueryException.class, () -> Person.update(" "),
+                "PanacheQueryException should have thrown");
+
+    }
+
+    private void testUpdateDAO() {
+        makeSavedPerson("p1");
+        makeSavedPerson("p2");
+
+        int updateByIndexParameter = personDao.update("update from Person2 p set p.name = 'stefNEW' where p.name = ?1",
+                "stefp1");
+        Assertions.assertEquals(1, updateByIndexParameter, "More than one Person updated");
+
+        int updateByNamedParameter = personDao.update("update from Person2 p set p.name = 'stefNEW' where p.name = :pName",
+                Parameters.with("pName", "stefp2").map());
+        Assertions.assertEquals(1, updateByNamedParameter, "More than one Person updated");
+
+        Assertions.assertEquals(2, personDao.deleteAll());
+
+        makeSavedPerson("p1");
+        makeSavedPerson("p2");
+
+        updateByIndexParameter = personDao.update("from Person2 p set p.name = 'stefNEW' where p.name = ?1", "stefp1");
+        Assertions.assertEquals(1, updateByIndexParameter, "More than one Person updated");
+
+        updateByNamedParameter = personDao.update("from Person2 p set p.name = 'stefNEW' where p.name = :pName",
+                Parameters.with("pName", "stefp2").map());
+        Assertions.assertEquals(1, updateByNamedParameter, "More than one Person updated");
+
+        Assertions.assertEquals(2, personDao.deleteAll());
+
+        makeSavedPerson("p1");
+        makeSavedPerson("p2");
+
+        updateByIndexParameter = personDao.update("set name = 'stefNEW' where name = ?1", "stefp1");
+        Assertions.assertEquals(1, updateByIndexParameter, "More than one Person updated");
+
+        updateByNamedParameter = personDao.update("set name = 'stefNEW' where name = :pName",
+                Parameters.with("pName", "stefp2").map());
+        Assertions.assertEquals(1, updateByNamedParameter, "More than one Person updated");
+
+        Assertions.assertEquals(2, personDao.deleteAll());
+
+        makeSavedPerson("p1");
+        makeSavedPerson("p2");
+
+        updateByIndexParameter = personDao.update("name = 'stefNEW' where name = ?1", "stefp1");
+        Assertions.assertEquals(1, updateByIndexParameter, "More than one Person updated");
+
+        updateByNamedParameter = personDao.update("name = 'stefNEW' where name = :pName",
+                Parameters.with("pName", "stefp2").map());
+        Assertions.assertEquals(1, updateByNamedParameter, "More than one Person updated");
+
+        Assertions.assertEquals(2, personDao.deleteAll());
+
+        makeSavedPerson("p1");
+        makeSavedPerson("p2");
+
+        updateByIndexParameter = personDao.update("name = 'stefNEW' where name = ?1", "stefp1");
+        Assertions.assertEquals(1, updateByIndexParameter, "More than one Person updated");
+
+        updateByNamedParameter = personDao.update("name = 'stefNEW' where name = :pName",
+                Parameters.with("pName", "stefp2"));
+        Assertions.assertEquals(1, updateByNamedParameter, "More than one Person updated");
+
+        Assertions.assertEquals(2, personDao.deleteAll());
+
+        Assertions.assertThrows(PanacheQueryException.class, () -> personDao.update(null),
+                "PanacheQueryException should have thrown");
+
+        Assertions.assertThrows(PanacheQueryException.class, () -> personDao.update(" "),
+                "PanacheQueryException should have thrown");
     }
 
     private void testSorting() {
@@ -324,7 +498,11 @@ public class TestEndpoint {
         } catch (NoResultException x) {
         }
 
+        Assertions.assertFalse(personDao.findAll().singleResultOptional().isPresent());
+
         Assertions.assertNull(personDao.findAll().firstResult());
+
+        Assertions.assertFalse(personDao.findAll().firstResultOptional().isPresent());
 
         Person person = makeSavedPersonDao();
         Assertions.assertNotNull(person.id);
@@ -354,8 +532,13 @@ public class TestEndpoint {
 
         Assertions.assertEquals(person, personDao.findAll().firstResult());
         Assertions.assertEquals(person, personDao.findAll().singleResult());
+        Assertions.assertEquals(person, personDao.findAll().singleResultOptional().get());
 
         persons = personDao.find("name = ?1", "stef").list();
+        Assertions.assertEquals(1, persons.size());
+        Assertions.assertEquals(person, persons.get(0));
+
+        persons = personDao.find("name = ?1", "stef").withLock(LockModeType.PESSIMISTIC_READ).list();
         Assertions.assertEquals(1, persons.size());
         Assertions.assertEquals(person, persons.get(0));
 
@@ -400,8 +583,18 @@ public class TestEndpoint {
 
         Assertions.assertEquals(person, personDao.find("name", "stef").firstResult());
         Assertions.assertEquals(person, personDao.find("name", "stef").singleResult());
+        Assertions.assertEquals(person, personDao.find("name", "stef").singleResultOptional().get());
 
         Person byId = personDao.findById(person.id);
+        Assertions.assertEquals(person, byId);
+
+        byId = personDao.findByIdOptional(person.id).get();
+        Assertions.assertEquals(person, byId);
+
+        byId = personDao.findById(person.id, LockModeType.PESSIMISTIC_READ);
+        Assertions.assertEquals(person, byId);
+
+        byId = personDao.findByIdOptional(person.id, LockModeType.PESSIMISTIC_READ).get();
         Assertions.assertEquals(person, byId);
 
         personDao.delete(person);
@@ -448,6 +641,8 @@ public class TestEndpoint {
         Assertions.assertNotNull(personDao.findAll().firstResult());
 
         Assertions.assertEquals(7, personDao.deleteAll());
+
+        testUpdateDAO();
 
         //flush
         Person person1 = new Person();
@@ -788,5 +983,78 @@ public class TestEndpoint {
         person.name = "Eddie";
         person.status = Status.DECEASED;
         return person;
+    }
+
+    @Inject
+    Bug5274EntityRepository bug5274EntityRepository;
+
+    @GET
+    @Path("5274")
+    @Transactional
+    public String testBug5274() {
+        bug5274EntityRepository.count();
+        return "OK";
+    }
+
+    @Inject
+    Bug5885EntityRepository bug5885EntityRepository;
+
+    @GET
+    @Path("5885")
+    @Transactional
+    public String testBug5885() {
+        bug5885EntityRepository.findById(1L);
+        return "OK";
+    }
+
+    @GET
+    @Path("testJaxbAnnotationTransfer")
+    public String testJaxbAnnotationTransfer() throws Exception {
+        // Test for fix to this bug: https://github.com/quarkusio/quarkus/issues/6021
+
+        // Ensure that any JAX-B annotations are properly moved to generated getters
+        Method m = JAXBEntity.class.getMethod("getNamedAnnotatedProp");
+        XmlAttribute anno = m.getAnnotation(XmlAttribute.class);
+        assertNotNull(anno);
+        assertEquals("Named", anno.name());
+        assertNull(m.getAnnotation(XmlTransient.class));
+
+        m = JAXBEntity.class.getMethod("getDefaultAnnotatedProp");
+        anno = m.getAnnotation(XmlAttribute.class);
+        assertNotNull(anno);
+        assertEquals("##default", anno.name());
+        assertNull(m.getAnnotation(XmlTransient.class));
+
+        m = JAXBEntity.class.getMethod("getUnAnnotatedProp");
+        assertNull(m.getAnnotation(XmlAttribute.class));
+        assertNull(m.getAnnotation(XmlTransient.class));
+
+        m = JAXBEntity.class.getMethod("getTransientProp");
+        assertNull(m.getAnnotation(XmlAttribute.class));
+        assertNotNull(m.getAnnotation(XmlTransient.class));
+
+        m = JAXBEntity.class.getMethod("getArrayAnnotatedProp");
+        assertNull(m.getAnnotation(XmlTransient.class));
+        XmlElements elementsAnno = m.getAnnotation(XmlElements.class);
+        assertNotNull(elementsAnno);
+        assertNotNull(elementsAnno.value());
+        assertEquals(2, elementsAnno.value().length);
+        assertEquals("array1", elementsAnno.value()[0].name());
+        assertEquals("array2", elementsAnno.value()[1].name());
+
+        // Ensure that all original fields were labeled @XmlTransient and had their original JAX-B annotations removed
+        ensureFieldSanitized("namedAnnotatedProp");
+        ensureFieldSanitized("transientProp");
+        ensureFieldSanitized("defaultAnnotatedProp");
+        ensureFieldSanitized("unAnnotatedProp");
+        ensureFieldSanitized("arrayAnnotatedProp");
+
+        return "OK";
+    }
+
+    private void ensureFieldSanitized(String fieldName) throws Exception {
+        Field f = JAXBEntity.class.getField(fieldName);
+        assertNull(f.getAnnotation(XmlAttribute.class));
+        assertNotNull(f.getAnnotation(XmlTransient.class));
     }
 }

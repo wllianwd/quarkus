@@ -44,6 +44,16 @@
             <groupId>com.github.tomakehurst</groupId>
             <artifactId>wiremock-jre8</artifactId>
             <scope>test</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>javax.servlet</groupId>
+                    <artifactId>javax.servlet-api</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
         </dependency>
     </dependencies>
 
@@ -56,16 +66,14 @@
         </resources>
         <plugins>
             <plugin>
-                <groupId>${project.groupId}</groupId>
+                <groupId>io.quarkus</groupId>
                 <artifactId>quarkus-maven-plugin</artifactId>
+                <version>${project.version}</version>
                 <executions>
                     <execution>
                         <goals>
                             <goal>build</goal>
                         </goals>
-                        <configuration>
-                            <uberJar>true</uberJar>
-                        </configuration>
                     </execution>
                 </executions>
             </plugin>
@@ -100,8 +108,9 @@
                         </executions>
                     </plugin>
                     <plugin>
-                        <groupId>${project.groupId}</groupId>
+                        <groupId>io.quarkus</groupId>
                         <artifactId>quarkus-maven-plugin</artifactId>
+                        <version>${project.version}</version>
                         <executions>
                             <execution>
                                 <id>native-image</id>
@@ -111,10 +120,6 @@
                                 <configuration>
                                     <cleanupServer>true</cleanupServer>
                                     <enableHttpUrlHandler>true</enableHttpUrlHandler>
-                                    <!-- Requires Quarkus Graal fork to work, will fail otherwise
-                                      <enableRetainedHeapReporting>true</enableRetainedHeapReporting>
-                                      <enableCodeSizeReporting>true</enableCodeSizeReporting>
-                                    -->
                                     <graalvmHome>${graalvmHome}</graalvmHome>
                                 </configuration>
                             </execution>

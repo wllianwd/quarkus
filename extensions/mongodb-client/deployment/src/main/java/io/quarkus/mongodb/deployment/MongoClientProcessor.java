@@ -21,12 +21,13 @@ import io.quarkus.deployment.builditem.ExtensionSslNativeSupportBuildItem;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
 import io.quarkus.deployment.builditem.LaunchModeBuildItem;
 import io.quarkus.deployment.builditem.ShutdownContextBuildItem;
-import io.quarkus.deployment.builditem.substrate.ReflectiveClassBuildItem;
+import io.quarkus.deployment.builditem.nativeimage.ReflectiveClassBuildItem;
 import io.quarkus.mongodb.ReactiveMongoClient;
 import io.quarkus.mongodb.runtime.MongoClientConfig;
 import io.quarkus.mongodb.runtime.MongoClientProducer;
 import io.quarkus.mongodb.runtime.MongoClientRecorder;
 import io.quarkus.runtime.RuntimeValue;
+import io.quarkus.smallrye.health.deployment.spi.HealthBuildItem;
 
 public class MongoClientProcessor {
 
@@ -67,5 +68,11 @@ public class MongoClientProcessor {
                 codecs.getCodecProviderClassNames());
         RuntimeValue<ReactiveMongoClient> reactiveClient = recorder.configureTheReactiveClient();
         return new MongoClientBuildItem(client, reactiveClient);
+    }
+
+    @BuildStep
+    HealthBuildItem addHealthCheck(MongoClientBuildTimeConfig buildTimeConfig) {
+        return new HealthBuildItem("io.quarkus.mongodb.health.MongoHealthCheck",
+                buildTimeConfig.healthEnabled, "mongodb");
     }
 }

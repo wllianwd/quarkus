@@ -204,6 +204,20 @@ public class ConfiguredBeanTest {
         Assertions.assertEquals(Arrays.asList("value1", "value2", "value3"), stringListMap.get("key1"));
         Assertions.assertEquals(Arrays.asList("value4", "value5"), stringListMap.get("key2"));
         Assertions.assertEquals(Collections.singletonList("value6"), stringListMap.get("key3"));
+
+        //quarkus.rt.leaf-map.key.first=first-key-value
+        //quarkus.rt.leaf-map.key.second=second-key-value
+
+        final Map<String, Map<String, String>> leafMap = runTimeConfig.leafMap;
+        Assertions.assertEquals("first-key-value", leafMap.get("key").get("first"));
+        Assertions.assertEquals("second-key-value", leafMap.get("key").get("second"));
+
+        //quarkus.rt.config-group-map.key.group.nested-value=value
+        //quarkus.rt.config-group-map.key.group.oov=value2.1+value2.2
+        final Map<String, Map<String, NestedConfig>> configGroupMap = runTimeConfig.configGroupMap;
+        NestedConfig nestedConfigFromMap = configGroupMap.get("key").get("group");
+        Assertions.assertEquals("value", nestedConfigFromMap.nestedValue);
+        Assertions.assertEquals(new ObjectOfValue("value2.1", "value2.2"), nestedConfigFromMap.oov);
     }
 
     /**
@@ -253,5 +267,27 @@ public class ConfiguredBeanTest {
         List<Integer> mapValues = new ArrayList<>(Arrays.asList(1, 2));
         List<Integer> actualMapValues = new ArrayList<>(configuredBean.getRunTimeConfig().mapOfNumbers.values());
         Assertions.assertEquals(mapValues, actualMapValues);
+    }
+
+    @Test
+    public void testBtrtMapOfMap() {
+        Map<String, Map<String, String>> mapMap = configuredBean.getBuildTimeConfig().mapMap;
+        Assertions.assertFalse(mapMap.containsKey("inner-key"));
+        Assertions.assertTrue(mapMap.containsKey("outer-key"));
+        Map<String, String> map = mapMap.get("outer-key");
+        Assertions.assertTrue(map.containsKey("inner-key"));
+        Assertions.assertFalse(map.containsKey("outer-key"));
+        Assertions.assertEquals("1234", map.get("inner-key"));
+    }
+
+    @Test
+    public void testRtMapOfMap() {
+        Map<String, Map<String, String>> mapMap = configuredBean.getRunTimeConfig().mapMap;
+        Assertions.assertFalse(mapMap.containsKey("inner-key"));
+        Assertions.assertTrue(mapMap.containsKey("outer-key"));
+        Map<String, String> map = mapMap.get("outer-key");
+        Assertions.assertTrue(map.containsKey("inner-key"));
+        Assertions.assertFalse(map.containsKey("outer-key"));
+        Assertions.assertEquals("1234", map.get("inner-key"));
     }
 }

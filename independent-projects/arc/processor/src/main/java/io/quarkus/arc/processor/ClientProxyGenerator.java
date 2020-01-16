@@ -1,11 +1,12 @@
 package io.quarkus.arc.processor;
 
+import static io.quarkus.arc.processor.IndexClassLookupUtils.getClassByName;
 import static org.objectweb.asm.Opcodes.ACC_FINAL;
 import static org.objectweb.asm.Opcodes.ACC_PRIVATE;
 
 import io.quarkus.arc.ClientProxy;
-import io.quarkus.arc.CreationalContextImpl;
 import io.quarkus.arc.InjectableBean;
+import io.quarkus.arc.impl.CreationalContextImpl;
 import io.quarkus.arc.processor.ResourceOutput.Resource;
 import io.quarkus.gizmo.AssignableResultHandle;
 import io.quarkus.gizmo.BytecodeCreator;
@@ -60,7 +61,7 @@ public class ClientProxyGenerator extends AbstractGenerator {
         ResourceClassOutput classOutput = new ResourceClassOutput(applicationClassPredicate.test(bean.getBeanClass()));
 
         Type providerType = bean.getProviderType();
-        ClassInfo providerClass = bean.getDeployment().getIndex().getClassByName(providerType.name());
+        ClassInfo providerClass = getClassByName(bean.getDeployment().getIndex(), providerType.name());
         String providerTypeName = providerClass.name().toString();
         String baseName = getBaseName(bean, beanClassName);
         String targetPackage = getPackageName(bean);
@@ -97,7 +98,7 @@ public class ClientProxyGenerator extends AbstractGenerator {
 
             // Exceptions
             for (Type exception : method.exceptions()) {
-                forward.addException(exception.asClassType().toString());
+                forward.addException(exception.toString());
             }
             // Method params
             ResultHandle[] params = new ResultHandle[method.parameters().size()];
@@ -134,7 +135,10 @@ public class ClientProxyGenerator extends AbstractGenerator {
              * as it just works, and the reflection case cannot be true since it's not possible to have
              * non-public default interface methods.
              */
-            if (isInterface) {
+            if (Methods.isObjectToString(method)) {
+                // Always use invokevirtual and the original descriptor for java.lang.Object#toString()
+                ret = forward.invokeVirtualMethod(originalMethodDescriptor, delegate, params);
+            } else if (isInterface) {
                 ret = forward.invokeInterfaceMethod(method, delegate, params);
             } else if (isReflectionFallbackNeeded(method, targetPackage)) {
                 // Reflection fallback
@@ -227,11 +231,11 @@ public class ClientProxyGenerator extends AbstractGenerator {
                     methods);
         } else if (bean.isProducerMethod()) {
             MethodInfo producerMethod = bean.getTarget().get().asMethod();
-            ClassInfo returnTypeClass = bean.getDeployment().getIndex().getClassByName(producerMethod.returnType().name());
+            ClassInfo returnTypeClass = getClassByName(bean.getDeployment().getIndex(), producerMethod.returnType().name());
             Methods.addDelegatingMethods(bean.getDeployment().getIndex(), returnTypeClass, methods);
         } else if (bean.isProducerField()) {
             FieldInfo producerField = bean.getTarget().get().asField();
-            ClassInfo fieldClass = bean.getDeployment().getIndex().getClassByName(producerField.type().name());
+            ClassInfo fieldClass = getClassByName(bean.getDeployment().getIndex(), producerField.type().name());
             Methods.addDelegatingMethods(bean.getDeployment().getIndex(), fieldClass, methods);
         } else if (bean.isSynthetic()) {
             Methods.addDelegatingMethods(bean.getDeployment().getIndex(), bean.getImplClazz(), methods);

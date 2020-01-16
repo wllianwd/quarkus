@@ -1,5 +1,6 @@
 package io.quarkus.arc.processor;
 
+import static io.quarkus.arc.processor.IndexClassLookupUtils.getClassByName;
 import static org.objectweb.asm.Opcodes.ACC_FINAL;
 import static org.objectweb.asm.Opcodes.ACC_PRIVATE;
 import static org.objectweb.asm.Opcodes.ACC_PUBLIC;
@@ -24,6 +25,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import javax.enterprise.inject.spi.InterceptionType;
 import javax.interceptor.InvocationContext;
 import org.jboss.jandex.AnnotationInstance;
@@ -61,7 +63,7 @@ public class InterceptorGenerator extends BeanGenerator {
         } else {
             baseName = DotNames.simpleName(interceptorClass);
         }
-        ClassInfo providerClass = interceptor.getDeployment().getIndex().getClassByName(providerType.name());
+        ClassInfo providerClass = getClassByName(interceptor.getDeployment().getIndex(), providerType.name());
         String providerTypeName = providerClass.name().toString();
         String targetPackage = DotNames.packageName(providerType.name());
         String generatedName = generatedNameFromTarget(targetPackage, baseName, BEAN_SUFFIX);
@@ -72,7 +74,7 @@ public class InterceptorGenerator extends BeanGenerator {
 
         // MyInterceptor_Bean implements InjectableInterceptor<T>
         ClassCreator interceptorCreator = ClassCreator.builder().classOutput(classOutput).className(generatedName)
-                .interfaces(InjectableInterceptor.class)
+                .interfaces(InjectableInterceptor.class, Supplier.class)
                 .build();
 
         // Fields
@@ -91,6 +93,7 @@ public class InterceptorGenerator extends BeanGenerator {
                 bindings.getFieldDescriptor());
 
         implementGetIdentifier(interceptor, interceptorCreator);
+        implementSupplierGet(interceptorCreator);
         implementCreate(classOutput, interceptorCreator, interceptor, providerTypeName, baseName, injectionPointToProviderField,
                 interceptorToProviderField,
                 reflectionRegistration, targetPackage, isApplicationClass);

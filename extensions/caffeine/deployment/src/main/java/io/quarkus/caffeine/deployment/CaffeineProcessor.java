@@ -3,7 +3,7 @@ package io.quarkus.caffeine.deployment;
 import java.io.IOException;
 
 import io.quarkus.deployment.annotations.BuildStep;
-import io.quarkus.deployment.builditem.substrate.ReflectiveClassBuildItem;
+import io.quarkus.deployment.builditem.nativeimage.ReflectiveClassBuildItem;
 
 public class CaffeineProcessor {
 
@@ -15,6 +15,8 @@ public class CaffeineProcessor {
                 "com.github.benmanes.caffeine.cache.SILMS",
                 "com.github.benmanes.caffeine.cache.PSMS",
                 "com.github.benmanes.caffeine.cache.PDMS",
-                "com.github.benmanes.caffeine.cache.SILMS");
+                "com.github.benmanes.caffeine.cache.SSMS",
+                "com.github.benmanes.caffeine.cache.SSLA",
+                "com.github.benmanes.caffeine.cache.PSA");
     }
 }

@@ -17,6 +17,7 @@
 
     <properties>
         <maven.deploy.skip>true</maven.deploy.skip>
+        <quarkus.build.skip>${skipTests}</quarkus.build.skip>
     </properties>
 
     <modules>
@@ -25,32 +26,73 @@
         <module>hibernate-validator</module>
         <module>common-jpa-entities</module>
         <module>infinispan-client</module>
+        <module>infinispan-embedded</module>
         <module>main</module>
         <module>kafka</module>
+        <module>kafka-streams</module>
         <module>jpa</module>
+        <module>jpa-derby</module>
         <module>jpa-postgresql</module>
+        <module>vault</module>
+        <module>vault-agroal</module>
+        <module>vault-app</module>
         <module>jpa-mariadb</module>
         <module>jpa-h2</module>
         <module>jpa-mssql</module>
+        <module>jpa-mysql</module>
         <module>hibernate-orm-panache</module>
         <module>hibernate-search-elasticsearch</module>
+        <module>vertx-http</module>
         <module>vertx</module>
         <module>spring-di</module>
+        <module>spring-web</module>
+        <module>spring-data-jpa</module>
+        <module>spring-boot-properties</module>
         <module>infinispan-cache-jpa</module>
         <module>elytron-security</module>
         <module>elytron-security-oauth2</module>
+        <module>elytron-resteasy</module>
+        <module>elytron-undertow</module>
         <module>flyway</module>
-        <module>keycloak</module>
+        <module>oidc</module>
+        <module>oidc-code-flow</module>
+        <module>oidc-tenancy</module>
+        <module>keycloak-authorization</module>
         <module>reactive-pg-client</module>
+        <module>reactive-mysql-client</module>
         <module>amazon-dynamodb</module>
         <module>test-extension</module>
         <module>amazon-lambda</module>
+        <module>amazon-lambda-http</module>
+        <module>amazon-lambda-http-resteasy</module>
         <module>kogito</module>
+        <module>kogito-maven</module>
+        <module>kubernetes</module>
         <module>kubernetes-client</module>
         <module>tika</module>
         <module>neo4j</module>
         <module>mongodb-client</module>
+        <module>jackson</module>
+        <module>jsonb</module>
         <module>resteasy-jackson</module>
+        <module>jgit</module>
+        <module>jsch</module>
+        <module>virtual-http</module>
+        <module>virtual-http-resteasy</module>
+        <module>artemis-core</module>
+        <module>artemis-jms</module>
+        <module>maven</module>
+        <module>scala</module>
+        <module>kotlin</module>
+        <module>mongodb-panache</module>
+        <module>narayana-stm</module>
+        <module>narayana-jta</module>
+        <module>elytron-security-jdbc</module>
+        <module>elytron-security-ldap</module>
+        <module>vertx-graphql</module>
+        <module>jpa-without-entity</module>
+        <module>quartz</module>
+        <module>logging-gelf</module>
     </modules>
 
     <build>
@@ -64,7 +106,21 @@
                 </configuration>
             </plugin>
         </plugins>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>io.quarkus</groupId>
+                    <artifactId>quarkus-maven-plugin</artifactId>
+                    <version>${project.version}</version>
+                    <configuration>
+                        <noDeps>true</noDeps>
+                        <skip>${quarkus.build.skip}</skip>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
     </build>
+
 
     <dependencyManagement>
         <dependencies>
@@ -77,6 +133,21 @@
                 <groupId>io.quarkus</groupId>
                 <artifactId>quarkus-integration-test-class-transformer</artifactId>
                 <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-platform-descriptor-json</artifactId>
+                <version>${project.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>io.quarkus</groupId>
+                        <artifactId>quarkus-bootstrap-core</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.apache.maven</groupId>
+                        <artifactId>*</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
         </dependencies>
     </dependencyManagement>

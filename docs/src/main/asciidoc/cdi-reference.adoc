@@ -11,10 +11,6 @@ include::./attributes.adoc[]
 :sectnumlevels: 4
 :toc:
 
-:numbered:
-:sectnums:
-:sectnumlevels: 4
-
 Quarkus DI solution is based on the http://docs.jboss.org/cdi/spec/2.0/cdi-spec.html[Contexts and Dependency Injection for Java 2.0, window="_blank"] specification.
 However, it is not a full CDI implementation verified by the TCK.
 Only a subset of the CDI features is implemented - see also <<supported_features,the list of supported features>> and <<limitations,the list of limitations>>.
@@ -25,13 +21,15 @@ NOTE: Most of the existing CDI code should work just fine but there are some sma
 == Bean Discovery
 
 Bean discovery in CDI is a complex process which involves legacy deployment structures and accessibility requirements of the underlying module architecture.
-Quarkus is using a simplified bean discovery.
-There is only one bean archive with `annotated` bean discovery mode and no visibility boundaries.
+However, Quarkus is using a *simplified bean discovery*.
+There is only single bean archive with the https://docs.jboss.org/cdi/spec/2.0/cdi-spec.html#default_bean_discovery[bean discovery mode `annotated`, window="_blank"] and no visibility boundaries.
 
 The bean archive is synthesized from:
 
-* the application,
-* application dependencies that contain a `beans.xml` descriptor or a generated Jandex index (`META-INF/jandex.idx`),
+* the application classes,
+* dependencies that contain a `beans.xml` descriptor (content is ignored),
+* dependencies that contain a Jandex index - `META-INF/jandex.idx`,
+* dependencies referenced by `quarkus.index-dependency` in `application.properties`,
 * and Quarkus integration code.
 
 Bean classes that don't have a http://docs.jboss.org/cdi/spec/2.0/cdi-spec.html#bean_defining_annotations[bean defining annotation, window="_blank"] are not discovered.
@@ -39,19 +37,66 @@ This behavior is defined by CDI.
 But producer methods and fields and observer methods are discovered even if the declaring class is not annotated with a bean defining annotation (this behavior is different to what is defined in CDI).
 In fact, the declaring bean classes are considered annotated with `@Dependent`. 
 
-NOTE: Quarkus extension may declare additional discovery rules. For example `@Scheduled` business methods are registered even if the declaring class is not annotated with a bean defining annotation.
+NOTE: Quarkus extensions may declare additional discovery rules. For example, `@Scheduled` business methods are registered even if the declaring class is not annotated with a bean defining annotation.
 
+=== How to Generate a Jandex Index
 
-== Private Members
+A dependency with a Jandex index is automatically scanned for beans.
+To generate the index just add the following to your `pom.xml`:
 
-Quarkus is designed with Substrate VM in mind.
-One of the limitations is the usage of https://github.com/oracle/graal/blob/master/substratevm/LIMITATIONS.md#user-content-reflection[Reflection, window="_blank"].
-Substrate VM does support reflective calls but for a price of a bigger native executable.
-Quarkus must use reflection fallback to access private members.
+[source,xml]
+----
+<build>
+  <plugins>
+    <plugin>
+      <groupId>org.jboss.jandex</groupId>
+      <artifactId>jandex-maven-plugin</artifactId>
+      <version>1.0.7</version>
+      <executions>
+        <execution>
+          <id>make-index</id>
+          <goals>
+            <goal>jandex</goal>
+          </goals>
+        </execution>
+      </executions>
+    </plugin>
+  </plugins>
+</build>
+----
+
+If you can't modify the dependency, you can still index it by adding `quarkus.index-dependency` entries to your `application.properties`:
+
+[source,properties]
+----
+quarkus.index-dependency.<name>.group-id=
+quarkus.index-dependency.<name>.artifact-id=
+quarkus.index-dependency.<name>.classifier=(this one is optional)
+----
+
+For example, the following entries ensure that the `org.acme:acme-api` dependency is indexed:
+
+[source,properties]
+----
+quarkus.index-dependency.acme.group-id=org.acme <1>
+quarkus.index-dependency.acme.artifact-id=acme-api <2>
+----
+<1> Value is a group id for a dependency identified by name `acme`.
+<2> Value is an artifact id for a dependency identified by name `acme`.
+
+== Native Executables and Private Members
+
+Quarkus is using GraalVM to build a native executable.
+One of the limitations of GraalVM is the usage of https://github.com/oracle/graal/blob/master/substratevm/LIMITATIONS.md#user-content-reflection[Reflection, window="_blank"].
+Reflective operations are supported but all relevant members must be registered for reflection explicitly.
+Those registrations result in a bigger native executable.
+
+And if Quarkus DI needs to access a private member it *has to use reflection*.
 That's why Quarkus users are encouraged __not to use private members__ in their beans.
 This involves injection fields, constructors and initializers, observer methods, producer methods and fields, disposers and interceptor methods.
 
-You can use for example package-private modifiers:
+How to avoid using private members?
+You can use package-private modifiers:
 
 [source,java]
 ----
@@ -82,8 +127,7 @@ public class CounterBean {
     }
 }
 ----
-<1> A package-private constructor injection.
-
+<1> A package-private constructor injection. `@Inject` is optional in this particular case.
 
 [[supported_features]]
 == Supported Features
@@ -122,6 +166,250 @@ public class CounterBean {
 * Interceptor methods on superclasses are not implemented yet
 * `BEFORE_COMPLETION`, `AFTER_COMPLETION`, `AFTER_FAILURE` and `AFTER_SUCCESS` transactional observers are not implemented yet
 
+== Non-standard Features
+
+=== Eager Instantiation of Beans
+
+[[lazy_by_default]]
+==== Lazy By Default
+
+By default, CDI beans are created lazily, when needed.
+What exactly "needed" means depends on the scope of a bean.
+
+* A *normal scoped bean* (`@ApplicationScoped`, `@RequestScoped`, etc.) is needed when a method is invoked upon an injected instance (contextual reference per the specification). 
++
+In other words, injecting a normal scoped bean will not suffice because a _client proxy_ is injected instead of a contextual instance of the bean.
+
+* A *bean with a pseudo-scope* (`@Dependent` and `@Singleton` ) is created when injected.
+
+.Lazy Instantiation Example
+[source,java]
+----
+@Singleton // => pseudo-scope
+class AmazingService {
+  String ping() {
+    return "amazing";
+  }
+}
+
+@ApplicationScoped // => normal scope
+class CoolService {
+  String ping() {
+    return "cool";
+  }
+}
+
+@Path("/ping")
+public class PingResource {
+
+  @Inject
+  AmazingService s1; <1>
+  
+  @Inject
+  CoolService s2; <2>
+  
+  @GET
+  public String ping() {
+    return s1.ping() + s2.ping(); <3>
+  }
+}
+----
+<1> Injection triggers the instantiation of `AmazingService`.
+<2> Injection itself does not result in the instantiation of `CoolService`. A client proxy is injected. 
+<3> The first invocation upon the injected proxy triggers the instantiation of `CoolService`.
+
+==== Startup Event
+
+However, if you really need to instantiate a bean eagerly you can:
+
+* Declare an observer of the `StartupEvent` - the scope of the bean does not matter in this case:
++
+[source,java]
+----
+@ApplicationScoped
+class CoolService {
+  void startup(@Observes StartupEvent event) { <1>
+  }
+}
+----
+<1> A `CoolService` is created during startup to service the observer method invocation.
+
+* Use the bean in an observer of the `StartupEvent` - normal scoped beans must be used as described in <<lazy_by_default>>:    
++
+[source,java]
+----
+@Dependent
+class MyBeanStarter {
+
+  void startup(@Observes StartupEvent event, AmazingService amazing, CoolService cool) { <1>
+    cool.toString(); <2>
+  }
+}
+----
+<1> The `AmazingService` is created during injection.
+<2> The `CoolService` is a normal scoped bean so we have to invoke a method upon the injected proxy to force the instantiation.
+
+NOTE: Quarkus users are encouraged to always prefer the `@Observes StartupEvent` to `@Initialized(ApplicationScoped.class)` as explained in the link:lifecycle[Application Initialization and Termination] guide. 
+
+=== Request Context Lifecycle 
+
+The request context is also active:
+
+* during notification of a synchronous observer method.
+
+The request context is destroyed:
+
+* after the observer notification completes for an event, if it was not already active when the notification started.
+
+NOTE: An event with qualifier `@Initialized(RequestScoped.class)` is fired when the request context is initialized for an observer notification. Moreover, the events with qualifiers `@BeforeDestroyed(RequestScoped.class)` and `@Destroyed(RequestScoped.class)` are fired when the request context is destroyed. 
+
+=== Qualified Injected Fields
+
+In CDI, if you declare a field injection point you need to use `@Inject` and optionally a set of qualifiers:
+ 
+[source,java]
+----
+  @Inject
+  @ConfigProperty(name = "cool")
+  String coolProperty;
+----
+
+In Quarkus, you can skip the `@Inject` annotation completely if an injected field declares at least one qualifier:
+
+[source,java]
+----
+  @ConfigProperty(name = "cool")
+  String coolProperty;
+----
+
+NOTE: With the notable exception of one special case discussed below, `@Inject` is still required for constructor and method injection.
+
+=== Simplified Constructor Injection
+
+In CDI, a normal scoped bean must always declare a no-args constructor (this constructor is normally generated by the compiler unless you declare any other constructor).
+However, this requirement complicates constructor injection - you need to provide a dummy no-args constructor to make things work in CDI.
+
+[source,java]
+----
+@ApplicationScoped
+public class MyCoolService {
+
+  private SimpleProcessor processor;
+
+  MyCoolService() { // dummy constructor needed
+  }
+  
+  @Inject // constructor injection
+  MyCoolService(SimpleProcessor processor) {
+    this.processor = processor;
+  }
+}
+----
+
+There is no need to declare dummy constructors for normal scoped bean in Quarkus - they are generated automatically.
+Also if there's only one constructor there is no need for `@Inject`.
+
+[source,java]
+----
+@ApplicationScoped
+public class MyCoolService {
+
+  private SimpleProcessor processor;
+
+  MyCoolService(SimpleProcessor processor) {
+    this.processor = processor;
+  }
+}
+----
+
+NOTE: We don't generate a no-args constructor automatically if a bean class extends a class that does not declare a no-args constructor.
+
+[[remove_unused_beans]]
+=== Removing Unused Beans
+
+The container attempts to remove all unused beans during build by default.
+This optimization can be disabled by setting `quarkus.arc.remove-unused-beans` to `none` or `false`.
+
+An unused bean:
+
+* is not a built-in bean or an interceptor,
+* is not eligible for injection to any injection point,
+* is not excluded by any extension,
+* does not have a name,
+* does not declare an observer,
+* does not declare any producer which is eligible for injection to any injection point,
+* is not directly eligible for injection into any `javax.enterprise.inject.Instance` or `javax.inject.Provider` injection point
+
+This optimization applies to all forms of bean declarations: bean class, producer method, producer field.
+
+Users can instruct the container to not remove any of their specific beans (even if they satisfy all the rules specified above) by annotating them with `io.quarkus.arc.Unremovable`.
+This annotation can be placed on the types, producer methods, and producer fields.
+ 
+Furthermore, extensions can eliminate possible false positives by producing `UnremovableBeanBuildItem`.
+
+Finally, Quarkus provides a middle ground for the bean removal optimization where application beans are never removed whether or not they are unused,
+while the optimization proceeds normally for non application classes. To use this mode, set `quarkus.arc.remove-unused-beans` to `fwk` or `framework`.
+
+When using the dev mode (running `mvn clean compile quarkus:dev`), you can see more information about which beans are being removed
+by enabling additional logging via the following line in your `application.properties`.
+
+----
+quarkus.log.category."io.quarkus.arc.processor".level=DEBUG
+----
+
+[[default_beans]]
+=== Default Beans
+
+Quarkus adds a capability that CDI currently does not support which is to conditionally declare a bean if no other bean with equal types and qualifiers was declared by any available means (bean class, producer, synthetic bean, ...)
+This is done using the `@io.quarkus.arc.DefaultBean` annotation and is best explained with an example.
+
+Say there is a Quarkus extension that among other things declares a few CDI beans like the following code does:
+
+[source,java]
+----
+@Dependent
+public class TracerConfiguration {
+
+    @Produces
+    public Tracer tracer(Reporter reporter, Configuration configuration) {
+        return new Tracer(reporter, configuration);
+    }
+
+    @Produces
+    @DefaultBean
+    public Configuration configuration() {
+        // create a Configuration
+    }
+
+    @Produces
+    @DefaultBean
+    public Reporter reporter(){
+        // create a Reporter
+    }
+}
+----
+
+The idea is that the extension auto-configures things for the user, eliminating a lot of boilerplate - we can just `@Inject` a `Tracer` wherever it is needed.
+Now imagine that in our application we would like to utilize the configured `Tracer`, but we need to customize it a little, for example by providing a custom `Reporter`.
+The only thing that would be needed in our application would be something like the following:
+
+
+[source,java]
+----
+@Dependent
+public class CustomTracerConfiguration {
+
+    @Produces
+    public Reporter reporter(){
+        // create a custom Reporter
+    }
+}
+----
+
+`@DefaultBean` allows extensions (or any other code for that matter) to provide defaults while backing off if beans of that type are supplied in any
+way Quarkus supports.
+
+
 == Build Time Extension Points
 
 [[portable_extensions]]
@@ -129,7 +417,7 @@ public class CounterBean {
 
 Quarkus incorporates build-time optimizations in order to provide instant startup and low memory footprint.
 The downside of this approach is that CDI Portable Extensions cannot be supported.
-Nevertheless, most of the functionality can be achieved using Quarkus link:extension-authors-guide.html[extensions].
+Nevertheless, most of the functionality can be achieved using Quarkus link:writing-extensions[extensions].
 
 === Additional Bean Defining Annotations
 
@@ -182,8 +470,8 @@ NOTE: A bean registration that is a result of an `AdditionalBeanBuildItem` is re
 === Synthetic Beans
 
 Sometimes it is very useful to register a synthetic bean, i.e. a bean that doesn't need to have a corresponding java class.
-In CDI this could be achieved using `AfterBeanDiscovery.addBean()` methods.
-In Quarkus we produce a `BeanRegistrarBuildItem` and leverage the `io.quarkus.arc.processor.BeanConfigurator` API to build a synthetic bean definition.
+In CDI, this could be achieved using `AfterBeanDiscovery.addBean()` methods.
+In Quarkus, we produce a `BeanRegistrarBuildItem` and leverage the `io.quarkus.arc.processor.BeanConfigurator` API to build a synthetic bean definition.
 
 [source,java]
 ----
@@ -200,6 +488,8 @@ BeanRegistrarBuildItem syntheticBean() {
 ----
 
 NOTE: The output of a `BeanConfigurator` is recorded as bytecode. Therefore there are some limitations in how a synthetic bean instance is created. See also `BeanConfigurator.creator()` methods.
+
+TIP: You can easily filter all class-based beans via the convenient `BeanStream` returned from the `RegistrationContext.beans()` method.
 
 If an extension needs to produce other build items during the "bean registration" phase it should use the `BeanRegistrationPhaseBuildItem` instead.
 The reason is that injected objects are only valid during a `@BuildStep` method invocation.
@@ -276,20 +566,50 @@ The following sample shows how to apply transformation to injection points with 
 [source,java]
 ----
 @BuildStep
-InjectionPointTransformerBuildItem transform() {
+InjectionPointTransformerBuildItem transformer() {
     return new InjectionPointTransformerBuildItem(new InjectionPointsTransformer() {
 
         public boolean appliesTo(Type requiredType) {
-            return requiredType.equals(Type.create(DotName.createSimple(Foo.class.getName()), Type.Kind.CLASS));
+            return requiredType.name().equals(DotName.createSimple(Foo.class.getName()));
         }
 
-        public void transform(TransformationContext transformationContext) {
-            if (transformationContext.getQualifiers().stream()
+        public void transform(TransformationContext context) {
+            if (context.getQualifiers().stream()
                     .anyMatch(a -> a.name().equals(DotName.createSimple(MyQualifier.class.getName())))) {
-                transformationContext.transform().removeAll()
+                context.transform()
+                        .removeAll()
                         .add(DotName.createSimple(MyOtherQualifier.class.getName()))
                         .done();
             }
+        }
+    });
+}
+----
+
+=== Observer Transformation
+
+Any https://docs.jboss.org/cdi/spec/2.0/cdi-spec.html#observer_methods[observer method] definition can be vetoed or transformed using an `ObserverTransformerBuildItem`.
+The attributes that can be transformed include:
+
+- https://docs.jboss.org/cdi/api/2.0/javax/enterprise/inject/spi/ObserverMethod.html#getObservedQualifiers--[qualifiers] 
+- https://docs.jboss.org/cdi/api/2.0/javax/enterprise/inject/spi/ObserverMethod.html#getReception--[reception] 
+- https://docs.jboss.org/cdi/api/2.0/javax/enterprise/inject/spi/ObserverMethod.html#getPriority--[priority] 
+- https://docs.jboss.org/cdi/api/2.0/javax/enterprise/inject/spi/ObserverMethod.html#getTransactionPhase--[transaction phase] 
+- https://docs.jboss.org/cdi/api/2.0/javax/enterprise/inject/spi/ObserverMethod.html#isAsync--[asynchronous] 
+
+[source,java]
+----
+@BuildStep
+ObserverTransformerBuildItem transformer() {
+    return new ObserverTransformerBuildItem(new ObserverTransformer() {
+
+        public boolean appliesTo(Type observedType, Set<AnnotationInstance> qualifiers) {
+            return observedType.name.equals(DotName.createSimple(MyEvent.class.getName()));
+        }
+
+        public void transform(TransformationContext context) {
+            // Veto all observers of MyEvent
+            context.veto();
         }
     });
 }
@@ -314,7 +634,7 @@ BeanDeploymentValidatorBuildItem beanDeploymentValidator() {
 }
 ----
 
-NOTE: See also `io.quarkus.arc.processor.BuildExtension.Key` to discover the available metadata.
+TIP: You can easily filter all registered beans via the convenient `BeanStream` returned from the `ValidationContext.beans()` method.
 
 If an extension needs to produce other build items during the "validation" phase it should use the `ValidationPhaseBuildItem` instead.
 The reason is that injected objects are only valid during a `@BuildStep` method invocation.
@@ -377,13 +697,15 @@ The built-in keys located in `io.quarkus.arc.processor.BuildExtension.Key` are:
 * `ANNOTATION_STORE`
 ** Contains an `AnnotationStore` that keeps information about all `AnnotationTarget` annotations after application of annotation transformers
 * `INJECTION_POINTS`
-** `List<InjectionPointInfo>` containing all injection points
+** `Collection<InjectionPointInfo>` containing all injection points
 * `BEANS`
-** `List<BeanInfo>` containing all beans
+** `Collection<BeanInfo>` containing all beans
+* `REMOVED_BEANS`
+** `Collection<BeanInfo>` containing all the removed beans; see <<remove_unused_beans>> for more information
 * `OBSERVERS`
-** `List<ObserverInfo>` containing all observers
+** `Collection<ObserverInfo>` containing all observers
 * `SCOPES`
-** `List<ScopeInfo>` containing all scopes, including custom ones
+** `Collection<ScopeInfo>` containing all scopes, including custom ones
 * `QUALIFIERS`
 ** `Map<DotName, ClassInfo>` containing all qualifiers
 * `INTERCEPTOR_BINDINGS`
@@ -402,83 +724,10 @@ Here is a summary of which extensions can access which metadata:
 ** Has access to `ANNOTATION_STORE`
 * `InjectionPointsTransformer`
 ** Has access to `ANNOTATION_STORE`, `QUALIFIERS`, `INTERCEPTOR_BINDINGS`, `STEREOTYPES`
+* `ObserverTransformer`
+** Has access to `ANNOTATION_STORE`, `QUALIFIERS`, `INTERCEPTOR_BINDINGS`, `STEREOTYPES`
 * `BeanRegistrar`
-** Has access to all build metadata
+** Has access to `ANNOTATION_STORE`, `QUALIFIERS`, `INTERCEPTOR_BINDINGS`, `STEREOTYPES`, `BEANS`
 * `BeanDeploymentValidator`
 ** Has access to all build metadata
 
-
-[[remove_unused_beans]]
-== Removing Unused Beans
-
-The container attempts to remove all unused beans during build by default.
-This optimization can be disabled by setting `quarkus.arc.remove-unused-beans` to `none` or `false`.
-
-An unused bean:
-
-* is not a built-in bean or an interceptor,
-* is not eligible for injection to any injection point,
-* is not excluded by any extension,
-* does not have a name,
-* does not declare an observer,
-* does not declare any producer which is eligible for injection to any injection point,
-* is not directly eligible for injection into any `javax.enterprise.inject.Instance` or `javax.inject.Provider` injection point
-
-Users can instruct the container to not remove any of their specific beans (even if they satisfy all the rules specified above) by annotating them with `io.quarkus.arc.Unremovable`.
- 
-Furthermore, extensions can eliminate possible false positives by producing `UnremovableBeanBuildItem`.
-
-Finally, Quarkus provides a middle ground for the bean removal optimization where application beans are never removed whether or not they are unused,
-while the optimization proceeds normally for non application classes. To use this mode, set `quarkus.arc.remove-unused-beans` to `fwk` or `framework`.
-
-[[default_beans]]
-== Default Beans
-
-Quarkus adds a capability that CDI currently does not support which is to conditionally declare a bean if no such bean has been declared in the typical ways Quarkus supports.
-This is done using the `@io.quarkus.arc.DefaultBean` annotation and is best explained with an example.
-
-Say there is a Quarkus extension that among other things declares a few CDI beans like the following code does:
-
-[source,java]
-----
-@Dependent
-public class TracerConfiguration {
-
-    @Produces
-    public Tracer tracer(Reporter reporter, Configuration configuration) {
-        return new Tracer(reporter, configuration);
-    }
-
-    @Produces
-    @DefaultBean
-    public Configuration configuration() {
-        // create a Configuration
-    }
-
-    @Produces
-    @DefaultBean
-    public Reporter reporter(){
-        // create a Reporter
-    }
-}
-----
-
-The idea is that the extension auto-configures things for user, eliminating a lot of boilerplate - we can just `@Inject` a `Tracer` wherever it is needed.
-Now imagine that in our application we would like to utilize the configured `Tracer`, but we need to customize it a little, for example by providing a custom `Reporter`.
-The only thing that would be needed in our application would be something like the following:
-
-
-[source,java]
-----
-@Dependent
-public class CustomTracerConfiguration {
-
-    @Produces
-    public Reporter reporter(){
-        // create a custom Reporter
-    }
-}
-----
-
-`@DefaultBean` allows extensions (or any other code for that matter) to provide defaults while backing off if beans of that type are supplied in any
-way Quarkus supports.

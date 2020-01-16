@@ -1,8 +1,10 @@
 package io.quarkus.elytron.security.runtime;
 
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 
-import javax.enterprise.context.ApplicationScoped;
+import javax.enterprise.inject.Any;
 import javax.enterprise.inject.Instance;
 import javax.inject.Inject;
 
@@ -17,23 +19,31 @@ import org.wildfly.security.authz.Roles;
  * an application specific implementation of {@link RoleDecoder}, if provided.
  * 
  */
-@ApplicationScoped
-public class DefaultRoleDecoder implements RoleDecoder {
+public class DefaultRoleDecoder {
 
     private static final String DEFAULT_ATTRIBUTE_NAME = "groups";
 
     @Inject
-    private Instance<RoleDecoder> instances;
+    @Any
+    private Instance<RoleDecoder> userInstances;
 
-    @Override
     public Roles decodeRoles(AuthorizationIdentity authorizationIdentity) {
-        RoleDecoder delegate = getDelegate();
-
-        if (delegate == null) {
+        if (userInstances.isUnsatisfied()) {
             return fromDefaultAttribute(authorizationIdentity);
+        } else if (userInstances.isAmbiguous()) {
+            //if there are multiple decoders we return all the roles
+            List<Roles> allRoles = new ArrayList<>();
+            for (RoleDecoder i : userInstances) {
+                allRoles.add(i.decodeRoles(authorizationIdentity));
+            }
+            Roles r = allRoles.get(0);
+            for (int i = 1; i < allRoles.size(); ++i) {
+                r = r.or(allRoles.get(i));
+            }
+            return r;
+        } else {
+            return userInstances.get().decodeRoles(authorizationIdentity);
         }
-
-        return delegate.decodeRoles(authorizationIdentity);
     }
 
     private Roles fromDefaultAttribute(AuthorizationIdentity authorizationIdentity) {
@@ -44,10 +54,5 @@ public class DefaultRoleDecoder implements RoleDecoder {
         }
 
         return Roles.fromSet(new HashSet<>(groups));
-    }
-
-    private RoleDecoder getDelegate() {
-        return instances.stream().filter(roleDecoder -> !DefaultRoleDecoder.class.isInstance(roleDecoder)).findAny()
-                .orElse(null);
     }
 }

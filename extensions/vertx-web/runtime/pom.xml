@@ -12,7 +12,7 @@
 
     <artifactId>quarkus-vertx-web</artifactId>
     <name>Quarkus - Vert.x Web - Runtime</name>
-
+    <description>Vert.x Web</description>
     <dependencies>
         <dependency>
             <groupId>io.quarkus</groupId>
@@ -23,20 +23,23 @@
             <artifactId>quarkus-vertx</artifactId>
         </dependency>
         <dependency>
-            <groupId>io.vertx</groupId>
-            <artifactId>vertx-web</artifactId>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-vertx-http</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus.security</groupId>
+            <artifactId>quarkus-security</artifactId>
             <exclusions>
                 <exclusion>
-                    <groupId>com.fasterxml.jackson.core</groupId>
-                    <artifactId>jackson-databind</artifactId>
+                    <groupId>javax.enterprise</groupId>
+                    <artifactId>cdi-api</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>
-         <dependency>
-             <groupId>junit</groupId>
-             <artifactId>junit</artifactId>
-             <scope>test</scope>
-         </dependency>
+        <dependency>
+            <groupId>jakarta.enterprise</groupId>
+            <artifactId>jakarta.enterprise.cdi-api</artifactId>
+        </dependency>
     </dependencies>
 
     <build>

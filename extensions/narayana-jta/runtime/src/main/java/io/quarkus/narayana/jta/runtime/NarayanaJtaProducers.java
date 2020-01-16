@@ -12,11 +12,11 @@ import org.jboss.tm.usertx.UserTransactionRegistry;
 import com.arjuna.ats.internal.jbossatx.jta.jca.XATerminator;
 import com.arjuna.ats.internal.jta.transaction.arjunacore.TransactionSynchronizationRegistryImple;
 import com.arjuna.ats.jbossatx.jta.RecoveryManagerService;
-import com.arjuna.ats.jta.TransactionManager;
 import com.arjuna.ats.jta.UserTransaction;
 
 @Dependent
 public class NarayanaJtaProducers {
+    private static final javax.transaction.UserTransaction USER_TRANSACTION = UserTransaction.userTransaction();
 
     @Produces
     @ApplicationScoped
@@ -27,26 +27,19 @@ public class NarayanaJtaProducers {
     @Produces
     @ApplicationScoped
     public javax.transaction.UserTransaction userTransaction() {
-        return UserTransaction.userTransaction();
+        return USER_TRANSACTION;
     }
 
     @Produces
     @ApplicationScoped
     public XAResourceRecoveryRegistry xaResourceRecoveryRegistry() {
         return new RecoveryManagerService();
-
     }
 
     @Produces
     @ApplicationScoped
     public TransactionSynchronizationRegistry transactionSynchronizationRegistry() {
         return new TransactionSynchronizationRegistryImple();
-    }
-
-    @Produces
-    @ApplicationScoped
-    public javax.transaction.TransactionManager transactionManager() {
-        return TransactionManager.transactionManager();
     }
 
     @Produces

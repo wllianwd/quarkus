@@ -20,8 +20,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
  * run, it is expected that the JVM tests will be standard unit tests that are
  * executed by surefire, while the native image tests will be integration tests
  * executed by failsafe.
+ * 
+ * @deprecated Use {@link NativeImageTest} instead.
  *
  */
+@Deprecated
 @Target(ElementType.TYPE)
 @ExtendWith({ QuarkusTestExtension.class, DisabledOnSubstrateCondition.class })
 @Retention(RetentionPolicy.RUNTIME)

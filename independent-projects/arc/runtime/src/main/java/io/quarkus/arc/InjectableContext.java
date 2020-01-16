@@ -4,6 +4,8 @@ import java.util.Map;
 import javax.enterprise.context.spi.AlterableContext;
 
 /**
+ * A context implementing this interface allows to capture and view its state via {@link ContextState}.
+ * It also allows user to destroy all contextual instances within this context.
  *
  * @author Martin Kouba
  */
@@ -25,7 +27,7 @@ public interface InjectableContext extends AlterableContext {
     interface ContextState {
 
         /**
-         * The changes to the map are not reflected in the underlying context state.
+         * The changes to the map are not reflected in the underlying context.
          * 
          * @return a map of contextual instances
          */

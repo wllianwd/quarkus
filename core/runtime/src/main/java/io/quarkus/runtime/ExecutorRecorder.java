@@ -3,6 +3,7 @@ package io.quarkus.runtime;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 
@@ -29,11 +30,14 @@ public class ExecutorRecorder {
      * In dev mode for now we need the executor to last for the life of the app, as it is used by Undertow. This will likely
      * change
      */
-    static CleanableExecutor devModeExecutor;
+    static volatile CleanableExecutor devModeExecutor;
+
+    private static volatile Executor current;
 
     public ExecutorService setupRunTime(ShutdownContext shutdownContext, ThreadPoolConfig threadPoolConfig,
             LaunchMode launchMode) {
         if (devModeExecutor != null) {
+            current = devModeExecutor;
             return devModeExecutor;
         }
         final EnhancedQueueExecutor underlying = createExecutor(threadPoolConfig);
@@ -53,6 +57,7 @@ public class ExecutorRecorder {
             shutdownContext.addShutdownTask(shutdownTask);
             executor = underlying;
         }
+        current = executor;
         return executor;
     }
 
@@ -61,6 +66,7 @@ public class ExecutorRecorder {
         Runnable task = createShutdownTask(config, underlying);
         devModeExecutor = new CleanableExecutor(underlying);
         Runtime.getRuntime().addShutdownHook(new Thread(task, "Executor shutdown thread"));
+        current = devModeExecutor;
         return devModeExecutor;
     }
 
@@ -92,10 +98,10 @@ public class ExecutorRecorder {
                                 final List<Runnable> runnables = executor.shutdownNow();
                                 if (!runnables.isEmpty()) {
                                     log.warnf("Thread pool shutdown failed: discarding %d tasks, %d threads still running",
-                                            Integer.valueOf(runnables.size()), Integer.valueOf(executor.getActiveCount()));
+                                            runnables.size(), executor.getActiveCount());
                                 } else {
                                     log.warnf("Thread pool shutdown failed: %d threads still running",
-                                            Integer.valueOf(executor.getActiveCount()));
+                                            executor.getActiveCount());
                                 }
                                 break;
                             }
@@ -105,7 +111,7 @@ public class ExecutorRecorder {
                                 final int queueSize = executor.getQueueSize();
                                 final Thread[] runningThreads = executor.getRunningThreads();
                                 log.infof("Awaiting thread pool shutdown; %d thread(s) running with %d task(s) waiting",
-                                        Integer.valueOf(runningThreads.length), Integer.valueOf(queueSize));
+                                        runningThreads.length, queueSize);
                                 // make sure no threads are stuck in {@code exit()}
                                 int realWaiting = runningThreads.length;
                                 for (Thread thr : runningThreads) {
@@ -162,4 +168,7 @@ public class ExecutorRecorder {
         return builder.build();
     }
 
+    public static Executor getCurrent() {
+        return current;
+    }
 }

@@ -1,10 +1,10 @@
 package io.quarkus.arc.test.interceptors.bindings;
 
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.quarkus.arc.Arc;
 import io.quarkus.arc.ArcContainer;
-import io.quarkus.arc.InvocationContextImpl;
+import io.quarkus.arc.ArcInvocationContext;
 import io.quarkus.arc.test.ArcTestContainer;
 import io.quarkus.arc.test.interceptors.Simple;
 import javax.annotation.Priority;
@@ -12,12 +12,12 @@ import javax.inject.Singleton;
 import javax.interceptor.AroundInvoke;
 import javax.interceptor.Interceptor;
 import javax.interceptor.InvocationContext;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
 
 public class InvocationContextBindingsTest {
 
-    @Rule
+    @RegisterExtension
     public ArcTestContainer container = new ArcTestContainer(Simple.class, MyTransactional.class, SimpleBean.class,
             SimpleInterceptor.class);
 
@@ -52,7 +52,7 @@ public class InvocationContextBindingsTest {
 
         @AroundInvoke
         Object mySuperCoolAroundInvoke(InvocationContext ctx) throws Exception {
-            Object bindings = ctx.getContextData().get(InvocationContextImpl.KEY_INTERCEPTOR_BINDINGS);
+            Object bindings = ctx.getContextData().get(ArcInvocationContext.KEY_INTERCEPTOR_BINDINGS);
             if (bindings != null) {
                 return bindings.toString() + "::" + ctx.proceed();
             }

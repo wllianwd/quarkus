@@ -1,5 +1,6 @@
 package io.quarkus.maven;
 
+import static io.quarkus.generators.ProjectGenerator.BUILD_FILE;
 import static org.fusesource.jansi.Ansi.ansi;
 import static org.twdata.maven.mojoexecutor.MojoExecutor.artifactId;
 import static org.twdata.maven.mojoexecutor.MojoExecutor.configuration;
@@ -14,9 +15,14 @@ import static org.twdata.maven.mojoexecutor.MojoExecutor.version;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Properties;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -33,16 +39,24 @@ import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.project.DefaultProjectBuildingRequest;
 import org.apache.maven.project.MavenProject;
 import org.apache.maven.project.ProjectBuilder;
+import org.eclipse.aether.RepositorySystem;
+import org.eclipse.aether.RepositorySystemSession;
+import org.eclipse.aether.repository.RemoteRepository;
 import org.fusesource.jansi.Ansi;
 
+import io.quarkus.bootstrap.resolver.AppModelResolverException;
+import io.quarkus.bootstrap.resolver.maven.MavenArtifactResolver;
 import io.quarkus.cli.commands.AddExtensionResult;
 import io.quarkus.cli.commands.AddExtensions;
 import io.quarkus.cli.commands.CreateProject;
+import io.quarkus.cli.commands.file.BuildFile;
 import io.quarkus.cli.commands.writer.FileProjectWriter;
+import io.quarkus.generators.BuildTool;
 import io.quarkus.generators.SourceType;
 import io.quarkus.maven.components.MavenVersionEnforcer;
 import io.quarkus.maven.components.Prompter;
-import io.quarkus.maven.utilities.MojoUtils;
+import io.quarkus.platform.descriptor.QuarkusPlatformDescriptor;
+import io.quarkus.platform.tools.ToolsUtils;
 
 /**
  * This goal helps in setting up Quarkus Maven project with quarkus-maven-plugin, with sensible defaults
@@ -50,7 +64,7 @@ import io.quarkus.maven.utilities.MojoUtils;
 @Mojo(name = "create", requiresProject = false)
 public class CreateProjectMojo extends AbstractMojo {
 
-    public static final String PLUGIN_KEY = MojoUtils.getPluginGroupId() + ":" + MojoUtils.getPluginArtifactId();
+    final private static boolean IS_WINDOWS = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("windows");
 
     private static final String DEFAULT_GROUP_ID = "org.acme.quarkus.sample";
 
@@ -66,17 +80,47 @@ public class CreateProjectMojo extends AbstractMojo {
     @Parameter(property = "projectVersion")
     private String projectVersion;
 
+    /**
+     * Group ID of the target platform BOM
+     */
+    @Parameter(property = "platformGroupId", required = false)
+    private String bomGroupId;
+
+    /**
+     * Artifact ID of the target platform BOM
+     */
+    @Parameter(property = "platformArtifactId", required = false)
+    private String bomArtifactId;
+
+    /**
+     * Version of the target platform BOM
+     */
+    @Parameter(property = "platformVersion", required = false)
+    private String bomVersion;
+
     @Parameter(property = "path")
     private String path;
 
     @Parameter(property = "className")
     private String className;
 
+    @Parameter(property = "buildTool", defaultValue = "MAVEN")
+    private String buildTool;
+
     @Parameter(property = "extensions")
     private Set<String> extensions;
 
+    @Parameter(property = "outputDirectory", defaultValue = "${basedir}")
+    private File outputDirectory;
+
     @Parameter(defaultValue = "${session}")
     private MavenSession session;
+
+    @Parameter(defaultValue = "${project.remoteProjectRepositories}", readonly = true, required = true)
+    private List<RemoteRepository> repos;
+
+    @Parameter(defaultValue = "${repositorySystemSession}", readonly = true)
+    private RepositorySystemSession repoSession;
 
     @Component
     private Prompter prompter;
@@ -90,13 +134,33 @@ public class CreateProjectMojo extends AbstractMojo {
     @Component
     private ProjectBuilder projectBuilder;
 
+    @Component
+    private RepositorySystem repoSystem;
+
     @Override
     public void execute() throws MojoExecutionException {
+
+        final MavenArtifactResolver mvn;
+        try {
+            mvn = MavenArtifactResolver.builder()
+                    .setRepositorySystem(repoSystem)
+                    .setRepositorySystemSession(repoSession)
+                    .setRemoteRepositories(repos).build();
+        } catch (AppModelResolverException e1) {
+            throw new MojoExecutionException("Failed to initialize Maven artifact resolver", e1);
+        }
+        final QuarkusPlatformDescriptor platform = CreateUtils.setGlobalPlatformDescriptor(bomGroupId, bomArtifactId,
+                bomVersion, mvn, getLog());
+
         // We detect the Maven version during the project generation to indicate the user immediately that the installed
         // version may not be supported.
         mavenVersionEnforcer.ensureMavenVersion(getLog(), session);
-
-        File projectRoot = new File(".");
+        try {
+            Files.createDirectories(outputDirectory.toPath());
+        } catch (IOException e) {
+            throw new MojoExecutionException("Could not create directory " + outputDirectory, e);
+        }
+        File projectRoot = outputDirectory;
         File pom = new File(projectRoot, "pom.xml");
 
         if (pom.isFile()) {
@@ -115,12 +179,10 @@ public class CreateProjectMojo extends AbstractMojo {
 
         } else {
             askTheUserForMissingValues();
-            if (!isDirectoryEmpty(projectRoot)) {
-                projectRoot = new File(projectArtifactId);
-                if (projectRoot.exists()) {
-                    throw new MojoExecutionException("Unable to create the project - the current directory is not empty and" +
-                            " the directory " + projectArtifactId + " exists");
-                }
+            projectRoot = new File(outputDirectory, projectArtifactId);
+            if (projectRoot.exists()) {
+                throw new MojoExecutionException("Unable to create the project, " +
+                        "the directory " + projectRoot.getAbsolutePath() + " already exists");
             }
         }
 
@@ -133,36 +195,74 @@ public class CreateProjectMojo extends AbstractMojo {
             final Map<String, Object> context = new HashMap<>();
             context.put("path", path);
 
+            BuildTool buildToolEnum;
+            try {
+                buildToolEnum = BuildTool.valueOf(buildTool.toUpperCase());
+            } catch (IllegalArgumentException e) {
+                String validBuildTools = String.join(",",
+                        Arrays.asList(BuildTool.values()).stream().map(BuildTool::toString).collect(Collectors.toList()));
+                throw new IllegalArgumentException("Choose a valid build tool. Accepted values are: " + validBuildTools);
+            }
+
             success = new CreateProject(new FileProjectWriter(projectRoot))
                     .groupId(projectGroupId)
                     .artifactId(projectArtifactId)
                     .version(projectVersion)
                     .sourceType(sourceType)
                     .className(className)
+                    .buildTool(buildToolEnum)
+                    .extensions(extensions)
                     .doCreateProject(context);
 
-            File createdPomFile = new File(projectRoot, "pom.xml");
+            File createdDependenciesBuildFile = new File(projectRoot, buildToolEnum.getDependenciesFile());
+            File buildFile = new File(createdDependenciesBuildFile.getAbsolutePath());
             if (success) {
-                File pomFile = new File(createdPomFile.getAbsolutePath());
-                AddExtensionResult result = new AddExtensions(new FileProjectWriter(pomFile.getParentFile()), pomFile.getName())
+                AddExtensionResult result = new AddExtensions((BuildFile) context.get(BUILD_FILE))
                         .addExtensions(extensions);
                 if (!result.succeeded()) {
                     success = false;
                 }
             }
-
-            createMavenWrapper(createdPomFile);
+            if (BuildTool.MAVEN.equals(buildToolEnum)) {
+                createMavenWrapper(createdDependenciesBuildFile, ToolsUtils.readQuarkusProperties(platform));
+            } else if (BuildTool.GRADLE.equals(buildToolEnum)) {
+                createGradleWrapper(buildFile.getParentFile(), ToolsUtils.readQuarkusProperties(platform));
+            }
         } catch (IOException e) {
-            throw new MojoExecutionException(e.getMessage(), e);
+            throw new MojoExecutionException("Failed to generate Quarkus project", e);
         }
         if (success) {
             printUserInstructions(projectRoot);
         } else {
-            throw new MojoExecutionException("the project was created but it was unable to add the extensions");
+            throw new MojoExecutionException(
+                    "The project was created but (some of) the requested extensions couldn't be added.");
         }
     }
 
-    private void createMavenWrapper(File createdPomFile) {
+    private void createGradleWrapper(File projectDirectory, Properties props) {
+        try {
+            String gradleName = IS_WINDOWS ? "gradle.bat" : "gradle";
+            ProcessBuilder pb = new ProcessBuilder(gradleName, "wrapper",
+                    "--gradle-version=" + ToolsUtils.getGradleWrapperVersion(props)).directory(projectDirectory)
+                            .inheritIO();
+            Process x = pb.start();
+
+            x.waitFor();
+
+            if (x.exitValue() != 0) {
+                getLog().warn("Unable to install the Gradle wrapper (./gradlew) in project. See log for details.");
+            }
+
+        } catch (InterruptedException | IOException e) {
+            // no reason to fail if the wrapper could not be created
+            getLog().error(
+                    "Unable to install the Gradle wrapper (./gradlew) in the project. You need to have gradle installed to generate the wrapper files.",
+                    e);
+        }
+
+    }
+
+    private void createMavenWrapper(File createdPomFile, Properties props) {
         try {
             // we need to modify the maven environment used by the wrapper plugin since the project could have been
             // created in a directory other than the current
@@ -180,10 +280,10 @@ public class CreateProjectMojo extends AbstractMojo {
                     plugin(
                             groupId("io.takari"),
                             artifactId("maven"),
-                            version(MojoUtils.getMavenWrapperVersion())),
+                            version(ToolsUtils.getMavenWrapperVersion(props))),
                     goal("wrapper"),
                     configuration(
-                            element(name("maven"), MojoUtils.getProposedMavenVersion())),
+                            element(name("maven"), ToolsUtils.getProposedMavenVersion(props))),
                     executionEnvironment(
                             newProject,
                             newSession,
@@ -295,7 +395,7 @@ public class CreateProjectMojo extends AbstractMojo {
         getLog().info(ansi().a("Navigate into this directory and launch your application with ")
                 .bold()
                 .fg(Ansi.Color.CYAN)
-                .a("mvn compile quarkus:dev")
+                .a("mvn quarkus:dev")
                 .reset()
                 .toString());
         getLog().info(
@@ -305,17 +405,4 @@ public class CreateProjectMojo extends AbstractMojo {
         getLog().info("");
     }
 
-    private boolean isDirectoryEmpty(File dir) {
-        if (!dir.isDirectory()) {
-            throw new IllegalArgumentException("The specified file must be a directory: " + dir.getAbsolutePath());
-        }
-
-        String[] children = dir.list();
-        if (children == null) {
-            // IO Issue
-            throw new IllegalArgumentException("The specified directory cannot be accessed: " + dir.getAbsolutePath());
-        }
-
-        return children.length == 0;
-    }
 }

@@ -8,7 +8,7 @@ import org.apache.maven.plugin.MojoFailureException;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 
-import io.quarkus.creator.phase.nativeimage.ReportAnalyzer;
+import io.quarkus.deployment.pkg.steps.ReportAnalyzer;
 
 /**
  * Analyze call tree of a method or a class based on an existing report produced by Substrate when using
@@ -35,9 +35,9 @@ public class AnalyseCallTreeMojo extends AbstractMojo {
         String clazz = className;
         String method = "<init>";
         if (methodName != null) {
-            int idex = methodName.lastIndexOf('.');
-            clazz = methodName.substring(0, idex);
-            method = methodName.substring(idex + 1);
+            int index = methodName.lastIndexOf('.');
+            clazz = methodName.substring(0, index);
+            method = methodName.substring(index + 1);
         }
 
         File[] files = reportsDir.listFiles();

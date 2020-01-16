@@ -19,10 +19,10 @@ import org.eclipse.microprofile.reactive.streams.operators.ReactiveStreams;
 import org.jboss.tm.usertx.client.ServerVMClientUserTransaction;
 import org.reactivestreams.Publisher;
 
-import com.arjuna.ats.internal.jta.transaction.arjunacore.TransactionManagerImple;
 import com.arjuna.ats.jta.logging.jtaLogger;
 
 import io.quarkus.arc.runtime.InterceptorBindings;
+import io.quarkus.narayana.jta.runtime.CDIDelegatingTransactionManager;
 import io.quarkus.narayana.jta.runtime.TransactionConfiguration;
 import io.smallrye.reactive.converters.ReactiveTypeConverter;
 import io.smallrye.reactive.converters.Registry;
@@ -82,7 +82,7 @@ public abstract class TransactionalInterceptorBase implements Serializable {
 
     private TransactionConfiguration getTransactionConfiguration(InvocationContext ic) {
         TransactionConfiguration configuration = ic.getMethod().getAnnotation(TransactionConfiguration.class);
-        if (ic == null) {
+        if (configuration == null) {
             return ic.getTarget().getClass().getAnnotation(TransactionConfiguration.class);
         }
         return configuration;
@@ -97,8 +97,7 @@ public abstract class TransactionalInterceptorBase implements Serializable {
             throws Exception {
 
         TransactionConfiguration configAnnotation = getTransactionConfiguration(ic);
-        int currentTmTimeout = ((TransactionManagerImple) com.arjuna.ats.jta.TransactionManager.transactionManager())
-                .getTimeout();
+        int currentTmTimeout = ((CDIDelegatingTransactionManager) transactionManager).getTransactionTimeout();
         if (configAnnotation != null && configAnnotation.timeout() != TransactionConfiguration.UNSET_TIMEOUT) {
             tm.setTransactionTimeout(configAnnotation.timeout());
         }
@@ -310,7 +309,6 @@ public abstract class TransactionalInterceptorBase implements Serializable {
     }
 
     protected boolean setUserTransactionAvailable(boolean available) {
-
         boolean previousUserTransactionAvailability = ServerVMClientUserTransaction.isAvailable();
 
         ServerVMClientUserTransaction.setAvailability(available);

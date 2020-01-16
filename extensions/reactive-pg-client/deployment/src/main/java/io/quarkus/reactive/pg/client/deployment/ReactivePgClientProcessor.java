@@ -10,13 +10,14 @@ import io.quarkus.deployment.annotations.ExecutionTime;
 import io.quarkus.deployment.annotations.Record;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
 import io.quarkus.deployment.builditem.ShutdownContextBuildItem;
+import io.quarkus.deployment.builditem.nativeimage.NativeImageConfigBuildItem;
 import io.quarkus.reactive.pg.client.runtime.DataSourceConfig;
 import io.quarkus.reactive.pg.client.runtime.PgPoolConfig;
 import io.quarkus.reactive.pg.client.runtime.PgPoolProducer;
 import io.quarkus.reactive.pg.client.runtime.PgPoolRecorder;
 import io.quarkus.runtime.RuntimeValue;
 import io.quarkus.vertx.deployment.VertxBuildItem;
-import io.reactiverse.pgclient.PgPool;
+import io.vertx.pgclient.PgPool;
 
 class ReactivePgClientProcessor {
 
@@ -25,6 +26,12 @@ class ReactivePgClientProcessor {
     @BuildStep
     AdditionalBeanBuildItem registerBean() {
         return AdditionalBeanBuildItem.unremovableOf(PgPoolProducer.class);
+    }
+
+    @BuildStep
+    NativeImageConfigBuildItem config() {
+        return NativeImageConfigBuildItem.builder().addRuntimeInitializedClass("io.vertx.pgclient.impl.codec.StartupMessage")
+                .build();
     }
 
     @BuildStep

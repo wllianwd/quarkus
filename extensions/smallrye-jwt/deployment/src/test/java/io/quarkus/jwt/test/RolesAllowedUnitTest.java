@@ -53,6 +53,25 @@ public class RolesAllowedUnitTest {
                 .statusCode(HttpURLConnection.HTTP_UNAUTHORIZED);
     }
 
+    @Test()
+    public void testAuthenticatedAnnotation() {
+        RestAssured.given()
+                .when()
+                .queryParam("input", "hello")
+                .get("/endp/authenticated")
+                .then()
+                .statusCode(HttpURLConnection.HTTP_UNAUTHORIZED);
+
+        io.restassured.response.Response response = RestAssured.given().auth()
+                .oauth2(token)
+                .when()
+                .get("/endp/authenticated").andReturn();
+
+        Assertions.assertEquals(HttpURLConnection.HTTP_OK, response.getStatusCode());
+        String replyString = response.body().asString();
+        Assertions.assertEquals("jdoe@example.com", replyString);
+    }
+
     /**
      * Validate a request without an MP-JWT to unsecured endpoint has HTTP_OK with expected response
      */
@@ -80,8 +99,6 @@ public class RolesAllowedUnitTest {
                 .get("/endp/echo").andReturn();
 
         Assertions.assertEquals(HttpURLConnection.HTTP_UNAUTHORIZED, response.getStatusCode());
-        String replyString = response.body().asString();
-        Assertions.assertEquals("Not authorized", replyString);
     }
 
     /**
@@ -118,7 +135,7 @@ public class RolesAllowedUnitTest {
 
         Assertions.assertEquals(HttpURLConnection.HTTP_FORBIDDEN, response.getStatusCode());
         String replyString = response.body().asString();
-        Assertions.assertEquals("Access forbidden: role not allowed", replyString);
+        Assertions.assertEquals("Forbidden", replyString);
     }
 
     /**
@@ -194,7 +211,7 @@ public class RolesAllowedUnitTest {
 
         Assertions.assertEquals(HttpURLConnection.HTTP_FORBIDDEN, response.getStatusCode());
         String replyString = response.body().asString();
-        Assertions.assertEquals("Access forbidden: role not allowed", replyString);
+        Assertions.assertEquals("Forbidden", replyString);
     }
 
     /**

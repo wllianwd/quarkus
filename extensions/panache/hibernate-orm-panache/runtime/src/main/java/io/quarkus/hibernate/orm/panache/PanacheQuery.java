@@ -1,8 +1,10 @@
 package io.quarkus.hibernate.orm.panache;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Stream;
 
+import javax.persistence.LockModeType;
 import javax.persistence.NoResultException;
 import javax.persistence.NonUniqueResultException;
 
@@ -114,6 +116,23 @@ public interface PanacheQuery<Entity> {
      */
     public Page page();
 
+    /**
+     * Define the locking strategy used for this query.
+     *
+     * @param lockModeType the locking strategy to be used for this query.
+     * @return this query, modified
+     */
+    public <T extends Entity> PanacheQuery<T> withLock(LockModeType lockModeType);
+
+    /**
+     * Set a query property or hint on the underlying JPA Query.
+     *
+     * @param hintName name of the property or hint.
+     * @param value value for the property or hint.
+     * @return this query, modified
+     */
+    public <T extends Entity> PanacheQuery<T> withHint(String hintName, Object value);
+
     // Results
 
     /**
@@ -155,6 +174,15 @@ public interface PanacheQuery<Entity> {
     public <T extends Entity> T firstResult();
 
     /**
+     * Returns the first result of the current page index. This ignores the current page size to fetch
+     * a single result.
+     *
+     * @return if found, an optional containing the entity, else <code>Optional.empty()</code>.
+     * @see #singleResultOptional()
+     */
+    public <T extends Entity> Optional<T> firstResultOptional();
+
+    /**
      * Executes this query for the current page and return a single result.
      * 
      * @return the single result (throws if there is not exactly one)
@@ -163,4 +191,13 @@ public interface PanacheQuery<Entity> {
      * @see #firstResult()
      */
     public <T extends Entity> T singleResult();
+
+    /**
+     * Executes this query for the current page and return a single result.
+     *
+     * @return if found, an optional containing the entity, else <code>Optional.empty()</code>.
+     * @throws NonUniqueResultException if there are more than one result
+     * @see #firstResultOptional()
+     */
+    public <T extends Entity> Optional<T> singleResultOptional();
 }

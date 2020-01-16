@@ -13,13 +13,17 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.ServiceLoader;
 import java.util.Set;
-import java.util.TreeSet;
 
+import org.eclipse.microprofile.config.spi.ConfigProviderResolver;
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.DotName;
 import org.jboss.jandex.IndexView;
@@ -27,7 +31,7 @@ import org.jboss.jandex.Indexer;
 
 public class TestResourceManager {
 
-    private final Set<QuarkusTestResourceLifecycleManager> testResources;
+    private final List<QuarkusTestResourceLifecycleManager> testResources;
     private Map<String, String> oldSystemProps;
 
     public TestResourceManager(Class<?> testClass) {
@@ -46,7 +50,11 @@ public class TestResourceManager {
         oldSystemProps = new HashMap<>();
         for (Map.Entry<String, String> i : ret.entrySet()) {
             oldSystemProps.put(i.getKey(), System.getProperty(i.getKey()));
-            System.setProperty(i.getKey(), i.getValue());
+            if (i.getValue() == null) {
+                System.clearProperty(i.getKey());
+            } else {
+                System.setProperty(i.getKey(), i.getValue());
+            }
         }
         return ret;
     }
@@ -76,15 +84,26 @@ public class TestResourceManager {
                 throw new RuntimeException("Unable to stop Quarkus test resource " + testResource, e);
             }
         }
+        ConfigProviderResolver cpr = ConfigProviderResolver.instance();
+        try {
+            cpr.releaseConfig(cpr.getConfig());
+        } catch (IllegalStateException ignored) {
+        }
     }
 
     @SuppressWarnings("unchecked")
-    private Set<QuarkusTestResourceLifecycleManager> getTestResources(Class<?> testClass) {
+    private List<QuarkusTestResourceLifecycleManager> getTestResources(Class<?> testClass) {
         IndexView index = indexTestClasses(testClass);
 
         Set<Class<? extends QuarkusTestResourceLifecycleManager>> testResourceRunnerClasses = new LinkedHashSet<>();
 
-        for (AnnotationInstance annotation : index.getAnnotations(DotName.createSimple(QuarkusTestResource.class.getName()))) {
+        Set<AnnotationInstance> testResourceAnnotations = new HashSet<>();
+        testResourceAnnotations.addAll(index.getAnnotations(DotName.createSimple(QuarkusTestResource.class.getName())));
+        for (AnnotationInstance annotation : index
+                .getAnnotations(DotName.createSimple(QuarkusTestResource.List.class.getName()))) {
+            Collections.addAll(testResourceAnnotations, annotation.value().asNestedArray());
+        }
+        for (AnnotationInstance annotation : testResourceAnnotations) {
             try {
                 testResourceRunnerClasses.add((Class<? extends QuarkusTestResourceLifecycleManager>) Class
                         .forName(annotation.value().asString()));
@@ -93,8 +112,7 @@ public class TestResourceManager {
             }
         }
 
-        Set<QuarkusTestResourceLifecycleManager> testResourceRunners = new TreeSet<>(
-                new QuarkusTestResourceLifecycleManagerComparator());
+        List<QuarkusTestResourceLifecycleManager> testResourceRunners = new ArrayList<>();
 
         for (Class<? extends QuarkusTestResourceLifecycleManager> testResourceRunnerClass : testResourceRunnerClasses) {
             try {
@@ -105,9 +123,12 @@ public class TestResourceManager {
             }
         }
 
-        for (QuarkusTestResourceLifecycleManager i : ServiceLoader.load(QuarkusTestResourceLifecycleManager.class)) {
-            testResourceRunners.add(i);
+        for (QuarkusTestResourceLifecycleManager quarkusTestResourceLifecycleManager : ServiceLoader
+                .load(QuarkusTestResourceLifecycleManager.class)) {
+            testResourceRunners.add(quarkusTestResourceLifecycleManager);
         }
+
+        Collections.sort(testResourceRunners, new QuarkusTestResourceLifecycleManagerComparator());
 
         return testResourceRunners;
     }

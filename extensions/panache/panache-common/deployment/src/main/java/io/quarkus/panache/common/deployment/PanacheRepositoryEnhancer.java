@@ -1,5 +1,6 @@
 package io.quarkus.panache.common.deployment;
 
+import java.lang.reflect.Modifier;
 import java.util.List;
 import java.util.function.BiFunction;
 
@@ -14,14 +15,16 @@ import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
-import org.objectweb.asm.signature.SignatureReader;
 
 public abstract class PanacheRepositoryEnhancer implements BiFunction<String, ClassVisitor, ClassVisitor> {
+    private static final DotName OBJECT_DOT_NAME = DotName.createSimple(Object.class.getName());
 
     protected final ClassInfo panacheRepositoryBaseClassInfo;
+    protected final IndexView indexView;
 
     public PanacheRepositoryEnhancer(IndexView index, DotName panacheRepositoryBaseName) {
         panacheRepositoryBaseClassInfo = index.getClassByName(panacheRepositoryBaseName);
+        this.indexView = index;
     }
 
     @Override
@@ -34,17 +37,19 @@ public abstract class PanacheRepositoryEnhancer implements BiFunction<String, Cl
         protected String entityBinaryType;
         protected String daoBinaryName;
         protected ClassInfo panacheRepositoryBaseClassInfo;
+        protected IndexView indexView;
 
         public PanacheRepositoryClassVisitor(String className, ClassVisitor outputClassVisitor,
-                ClassInfo panacheRepositoryBaseClassInfo) {
+                ClassInfo panacheRepositoryBaseClassInfo, IndexView indexView) {
             super(Opcodes.ASM7, outputClassVisitor);
             daoBinaryName = className.replace('.', '/');
             this.panacheRepositoryBaseClassInfo = panacheRepositoryBaseClassInfo;
+            this.indexView = indexView;
         }
 
-        protected abstract String getPanacheRepositoryBinaryName();
+        protected abstract DotName getPanacheRepositoryDotName();
 
-        protected abstract String getPanacheRepositoryBaseBinaryName();
+        protected abstract DotName getPanacheRepositoryBaseDotName();
 
         protected abstract String getPanacheOperationsBinaryName();
 
@@ -55,16 +60,44 @@ public abstract class PanacheRepositoryEnhancer implements BiFunction<String, Cl
         @Override
         public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
             super.visit(version, access, name, signature, superName, interfaces);
-            SignatureReader signatureReader = new SignatureReader(signature);
-            DaoTypeFetcher daoTypeFetcher = new DaoTypeFetcher(getPanacheRepositoryBinaryName());
-            signatureReader.accept(daoTypeFetcher);
-            if (daoTypeFetcher.foundType == null) {
-                daoTypeFetcher = new DaoTypeFetcher(getPanacheRepositoryBaseBinaryName());
-                signatureReader.accept(daoTypeFetcher);
+
+            final String repositoryClassName = name.replace('/', '.');
+
+            String foundEntityType = findEntityBinaryTypeForPanacheRepository(repositoryClassName,
+                    getPanacheRepositoryDotName());
+
+            if (foundEntityType == null) {
+                foundEntityType = findEntityBinaryTypeForPanacheRepository(repositoryClassName,
+                        getPanacheRepositoryBaseDotName());
             }
-            entityBinaryType = daoTypeFetcher.foundType;
+
+            entityBinaryType = foundEntityType;
             entitySignature = "L" + entityBinaryType + ";";
             entityType = Type.getType(entitySignature);
+        }
+
+        private String findEntityBinaryTypeForPanacheRepository(String repositoryClassName, DotName repositoryDotName) {
+            for (ClassInfo classInfo : indexView.getAllKnownImplementors(repositoryDotName)) {
+                if (repositoryClassName.equals(classInfo.name().toString())) {
+                    return recursivelyFindEntityTypeFromClass(classInfo.name(), repositoryDotName);
+                }
+            }
+
+            return null;
+        }
+
+        private String recursivelyFindEntityTypeFromClass(DotName clazz, DotName repositoryDotName) {
+            if (clazz.equals(OBJECT_DOT_NAME)) {
+                return null;
+            }
+
+            List<org.jboss.jandex.Type> typeParameters = io.quarkus.deployment.util.JandexUtil
+                    .resolveTypeParameters(clazz, repositoryDotName, indexView);
+            if (typeParameters.isEmpty())
+                throw new IllegalStateException(
+                        "Failed to find supertype " + repositoryDotName + " from entity class " + clazz);
+            org.jboss.jandex.Type entityType = typeParameters.get(0);
+            return entityType.name().toString().replace('.', '/');
         }
 
         @Override
@@ -132,5 +165,12 @@ public abstract class PanacheRepositoryEnhancer implements BiFunction<String, Cl
             mv.visitMaxs(0, 0);
             mv.visitEnd();
         }
+    }
+
+    public static boolean skipRepository(ClassInfo classInfo) {
+        // we don't want to add methods to abstract/generic entities/repositories: they get added to bottom types
+        // which can't be either
+        return Modifier.isAbstract(classInfo.flags())
+                || !classInfo.typeParameters().isEmpty();
     }
 }

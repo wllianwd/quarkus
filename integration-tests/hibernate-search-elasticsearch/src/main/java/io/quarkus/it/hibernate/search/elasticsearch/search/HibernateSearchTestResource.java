@@ -39,21 +39,59 @@ public class HibernateSearchTestResource {
         SearchSession searchSession = Search.session(entityManager);
 
         List<Person> person = searchSession.search(Person.class)
-                .predicate(f -> f.match().onField("name").matching("john"))
-                .sort(f -> f.byField("name_sort"))
-                .fetchHits();
+                .predicate(f -> f.match().field("name").matching("john"))
+                .sort(f -> f.field("name_sort"))
+                .fetchHits(20);
 
         assertEquals(2, person.size());
         assertEquals("John Grisham", person.get(0).getName());
         assertEquals("John Irving", person.get(1).getName());
 
         person = searchSession.search(Person.class)
-                .predicate(f -> f.nested().onObjectField("address").nest(f.match().onField("address.city").matching("london")))
-                .sort(f -> f.byField("name_sort"))
-                .fetchHits();
+                .predicate(f -> f.nested().objectField("address").nest(
+                        f.match().field("address.city").matching("london")))
+                .sort(f -> f.field("name_sort"))
+                .fetchHits(20);
 
         assertEquals(1, person.size());
         assertEquals("David Lodge", person.get(0).getName());
+
+        return "OK";
+    }
+
+    @PUT
+    @Path("/purge")
+    @Produces(MediaType.TEXT_PLAIN)
+    public String testPurge() {
+        SearchSession searchSession = Search.session(entityManager);
+
+        searchSession.workspace().purge();
+
+        return "OK";
+    }
+
+    @PUT
+    @Path("/flush")
+    @Produces(MediaType.TEXT_PLAIN)
+    public String testFlush() {
+        SearchSession searchSession = Search.session(entityManager);
+
+        searchSession.workspace().flush();
+
+        return "OK";
+    }
+
+    @GET
+    @Path("/search-empty")
+    @Produces(MediaType.TEXT_PLAIN)
+    public String testSearchEmpty() {
+        SearchSession searchSession = Search.session(entityManager);
+
+        List<Person> person = searchSession.search(Person.class)
+                .predicate(f -> f.matchAll())
+                .fetchHits(20);
+
+        assertEquals(0, person.size());
 
         return "OK";
     }

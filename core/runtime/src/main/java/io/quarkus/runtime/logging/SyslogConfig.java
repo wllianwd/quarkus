@@ -21,6 +21,7 @@ public class SyslogConfig {
     boolean enable;
 
     /**
+     *
      * The IP address and port of the syslog server
      */
     @ConfigItem(defaultValue = "localhost:514")
@@ -41,32 +42,32 @@ public class SyslogConfig {
     /**
      * Sets the facility used when calculating the priority of the message as defined by RFC-5424 and RFC-3164
      */
-    @ConfigItem(defaultValue = "USER_LEVEL")
+    @ConfigItem(defaultValue = "user-level")
     Facility facility;
 
     /**
      * Set the {@link SyslogType syslog type} this handler should use to format the message sent
      */
-    @ConfigItem(defaultValue = "RFC5424")
+    @ConfigItem(defaultValue = "rfc5424")
     SyslogType syslogType;
 
     /**
      * Sets the protocol used to connect to the syslog server
      */
-    @ConfigItem(defaultValue = "TCP")
+    @ConfigItem(defaultValue = "tcp")
     Protocol protocol;
 
     /**
      * Set to {@code true} if the message being sent should be prefixed with the size of the message
      */
     @ConfigItem
-    public boolean useCountingFraming;
+    boolean useCountingFraming;
 
     /**
      * Set to {@code true} if the message should be truncated
      */
     @ConfigItem(defaultValue = "true")
-    public boolean truncate;
+    boolean truncate;
 
     /**
      * Enables or disables blocking when attempting to reconnect a

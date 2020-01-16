@@ -59,7 +59,6 @@ import org.hibernate.cfg.Environment;
 import org.hibernate.cfg.beanvalidation.BeanValidationIntegrator;
 import org.hibernate.dialect.Dialect;
 import org.hibernate.engine.jdbc.dialect.spi.DialectFactory;
-import org.hibernate.engine.transaction.jta.platform.internal.JBossStandAloneJtaPlatform;
 import org.hibernate.engine.transaction.jta.platform.spi.JtaPlatform;
 import org.hibernate.id.factory.spi.MutableIdentifierGeneratorFactory;
 import org.hibernate.integrator.spi.Integrator;
@@ -81,6 +80,7 @@ import org.infinispan.quarkus.hibernate.cache.QuarkusInfinispanRegionFactory;
 
 import io.quarkus.hibernate.orm.runtime.BuildTimeSettings;
 import io.quarkus.hibernate.orm.runtime.IntegrationSettings;
+import io.quarkus.hibernate.orm.runtime.customized.QuarkusJtaPlatform;
 import io.quarkus.hibernate.orm.runtime.integration.HibernateOrmIntegrations;
 import io.quarkus.hibernate.orm.runtime.recording.RecordableBootstrap;
 import io.quarkus.hibernate.orm.runtime.recording.RecordedState;
@@ -224,52 +224,74 @@ public class FastBootMetadataBuilder {
     @SuppressWarnings({ "unchecked", "rawtypes" })
     private MergedSettings mergeSettings(PersistenceUnitDescriptor persistenceUnit) {
         final MergedSettings mergedSettings = new MergedSettings();
+        final Map cfg = mergedSettings.configurationValues;
 
         // first, apply persistence.xml-defined settings
         if (persistenceUnit.getProperties() != null) {
-            mergedSettings.configurationValues.putAll(persistenceUnit.getProperties());
+            cfg.putAll(persistenceUnit.getProperties());
         }
 
-        mergedSettings.configurationValues.put(PERSISTENCE_UNIT_NAME, persistenceUnit.getName());
+        cfg.put(PERSISTENCE_UNIT_NAME, persistenceUnit.getName());
 
-        applyTransactionProperties(persistenceUnit, mergedSettings.configurationValues);
-        applyJdbcConnectionProperties(mergedSettings.configurationValues);
+        applyTransactionProperties(persistenceUnit, cfg);
+        applyJdbcConnectionProperties(cfg);
 
         // unsupported FLUSH_BEFORE_COMPLETION
 
-        if (readBooleanConfigurationValue(mergedSettings.configurationValues, Environment.FLUSH_BEFORE_COMPLETION)) {
-            mergedSettings.configurationValues.put(Environment.FLUSH_BEFORE_COMPLETION, "false");
+        if (readBooleanConfigurationValue(cfg, Environment.FLUSH_BEFORE_COMPLETION)) {
+            cfg.put(Environment.FLUSH_BEFORE_COMPLETION, "false");
             LOG.definingFlushBeforeCompletionIgnoredInHem(Environment.FLUSH_BEFORE_COMPLETION);
         }
 
         // Quarkus specific
 
-        mergedSettings.configurationValues.put("hibernate.temp.use_jdbc_metadata_defaults", "false");
+        cfg.put("hibernate.temp.use_jdbc_metadata_defaults", "false");
 
-        if (readBooleanConfigurationValue(mergedSettings.configurationValues, WRAP_RESULT_SETS)) {
+        //This shouldn't be encouraged but sometimes it's really useful - and it used to be the default
+        //in Hibernate ORM before the JPA spec would require to change this.
+        //At this time of transitioning we'll only expose it as a global system property, so to allow usage
+        //for special circumstances and yet not encourage this.
+        //Also, definitely don't override anything which was explicitly set in the configuration.
+        if (!cfg.containsKey(AvailableSettings.ALLOW_UPDATE_OUTSIDE_TRANSACTION)) {
+            cfg.put(AvailableSettings.ALLOW_UPDATE_OUTSIDE_TRANSACTION,
+                    Boolean.getBoolean(AvailableSettings.ALLOW_UPDATE_OUTSIDE_TRANSACTION));
+        }
+
+        //Enable the new Enhanced Proxies capability (unless it was specifically disabled):
+        if (!cfg.containsKey(AvailableSettings.ALLOW_ENHANCEMENT_AS_PROXY)) {
+            cfg.put(AvailableSettings.ALLOW_ENHANCEMENT_AS_PROXY, Boolean.TRUE.toString());
+        }
+        //Always Order batch updates as it prevents contention on the data (unless it was disabled)
+        if (!cfg.containsKey(AvailableSettings.ORDER_UPDATES)) {
+            cfg.put(AvailableSettings.ORDER_UPDATES, Boolean.TRUE.toString());
+        }
+        //Agroal already does disable auto-commit, so Hibernate ORM should trust that:
+        cfg.put(AvailableSettings.CONNECTION_PROVIDER_DISABLES_AUTOCOMMIT, Boolean.TRUE.toString());
+
+        if (readBooleanConfigurationValue(cfg, WRAP_RESULT_SETS)) {
             LOG.warn("Wrapping result sets is not supported. Setting " + WRAP_RESULT_SETS + " to false.");
         }
-        mergedSettings.configurationValues.put(WRAP_RESULT_SETS, "false");
+        cfg.put(WRAP_RESULT_SETS, "false");
 
-        if (readBooleanConfigurationValue(mergedSettings.configurationValues, XML_MAPPING_ENABLED)) {
+        if (readBooleanConfigurationValue(cfg, XML_MAPPING_ENABLED)) {
             LOG.warn("XML mapping is not supported. Setting " + XML_MAPPING_ENABLED + " to false.");
         }
-        mergedSettings.configurationValues.put(XML_MAPPING_ENABLED, "false");
+        cfg.put(XML_MAPPING_ENABLED, "false");
 
         // Note: this one is not a boolean, just having the property enables it
-        if (mergedSettings.configurationValues.containsKey(JACC_ENABLED)) {
+        if (cfg.containsKey(JACC_ENABLED)) {
             LOG.warn("JACC is not supported. Disabling it.");
         }
-        mergedSettings.configurationValues.remove(JACC_ENABLED);
+        cfg.remove(JACC_ENABLED);
 
-        enableCachingByDefault(mergedSettings.configurationValues);
+        enableCachingByDefault(cfg);
 
         // here we are going to iterate the merged config settings looking for:
         // 1) additional JACC permissions
         // 2) additional cache region declarations
         //
         // we will also clean up any references with null entries
-        Iterator itr = mergedSettings.configurationValues.entrySet().iterator();
+        Iterator itr = cfg.entrySet().iterator();
         while (itr.hasNext()) {
             final Map.Entry entry = (Map.Entry) itr.next();
             if (entry.getValue() == null) {
@@ -297,10 +319,10 @@ public class FastBootMetadataBuilder {
             }
         }
 
-        mergedSettings.configurationValues.put(org.hibernate.cfg.AvailableSettings.CACHE_REGION_FACTORY,
+        cfg.put(org.hibernate.cfg.AvailableSettings.CACHE_REGION_FACTORY,
                 QuarkusInfinispanRegionFactory.class.getName());
 
-        HibernateOrmIntegrations.contributeBootProperties((k, v) -> mergedSettings.configurationValues.put(k, v));
+        HibernateOrmIntegrations.contributeBootProperties((k, v) -> cfg.put(k, v));
 
         return mergedSettings;
     }
@@ -369,9 +391,7 @@ public class FastBootMetadataBuilder {
     }
 
     private JtaPlatform extractJtaPlatform() {
-        return new JBossStandAloneJtaPlatform();
-        //        JtaPlatformResolver service = standardServiceRegistry.getService( JtaPlatformResolver.class );
-        //        return service.resolveJtaPlatform( this.configurationValues, (ServiceRegistryImplementor) standardServiceRegistry );
+        return QuarkusJtaPlatform.INSTANCE;
     }
 
     private Dialect extractDialect() {

@@ -14,14 +14,18 @@
     <name>Quarkus - Test Framework</name>
     <packaging>pom</packaging>
     <modules>
+        <module>artemis</module>
         <module>common</module>
         <module>h2</module>
+        <module>derby</module>
         <module>kubernetes-client</module>
-        <module>junit4</module>
         <module>junit5-internal</module>
         <module>junit5</module>
         <module>amazon-lambda</module>
         <module>arquillian</module>
+        <module>maven</module>
+        <module>vault</module>
+        <module>ldap</module>
     </modules>
 
 </project>

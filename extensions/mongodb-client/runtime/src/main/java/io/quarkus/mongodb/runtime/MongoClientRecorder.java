@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import org.bson.codecs.configuration.CodecProvider;
@@ -43,6 +44,7 @@ import io.quarkus.runtime.annotations.Recorder;
 public class MongoClientRecorder {
 
     private static final Logger LOGGER = Logger.getLogger(MongoClientRecorder.class);
+    private static final Pattern COLON_PATTERN = Pattern.compile(":");
 
     private static volatile MongoClient client;
     private static volatile ReactiveMongoClient reactiveMongoClient;
@@ -77,7 +79,7 @@ public class MongoClientRecorder {
     }
 
     void initialize(MongoClientConfig config, List<String> codecProviders) {
-        CodecRegistry defaultCodecRegistry = com.mongodb.MongoClient.getDefaultCodecRegistry();
+        CodecRegistry defaultCodecRegistry = MongoClientSettings.getDefaultCodecRegistry();
 
         MongoClientSettings.Builder settings = MongoClientSettings.builder();
 
@@ -88,20 +90,21 @@ public class MongoClientRecorder {
             settings.applyConnectionString(connectionString);
         }
 
-        List<CodecProvider> providers = new ArrayList<>();
-        if (!codecProviders.isEmpty()) {
-            providers.addAll(getCodecProviders(codecProviders));
+        List<CodecRegistry> registries = new ArrayList<>();
+        List<CodecProvider> foundProviders = getCodecProviders(codecProviders);
+        if (!foundProviders.isEmpty()) {
+            registries.add(CodecRegistries.fromProviders(foundProviders));
         }
+        registries.add(defaultCodecRegistry);
+
         // add pojo codec provider with automatic capabilities
         // it always needs to be the last codec provided
         CodecProvider pojoCodecProvider = PojoCodecProvider.builder()
                 .automatic(true)
                 .conventions(Conventions.DEFAULT_CONVENTIONS)
                 .build();
-        providers.add(pojoCodecProvider);
-        CodecRegistry registry = CodecRegistries.fromRegistries(defaultCodecRegistry,
-                CodecRegistries.fromProviders(providers));
-        settings.codecRegistry(registry);
+        registries.add(CodecRegistries.fromProviders(Collections.singletonList(pojoCodecProvider)));
+        settings.codecRegistry(CodecRegistries.fromRegistries(registries));
 
         config.applicationName.ifPresent(settings::applicationName);
 
@@ -251,7 +254,7 @@ public class MongoClientRecorder {
         return addresses.stream()
                 .map(String::trim)
                 .map(address -> {
-                    String[] segments = address.split(":");
+                    String[] segments = COLON_PATTERN.split(address);
                     if (segments.length == 1) {
                         // Host only, default port
                         return new ServerAddress(address);

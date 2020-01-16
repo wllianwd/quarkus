@@ -7,6 +7,7 @@ import java.util.List;
 
 import org.flywaydb.core.api.Location;
 import org.flywaydb.core.internal.resource.LoadableResource;
+import org.flywaydb.core.internal.scanner.ResourceNameCache;
 import org.flywaydb.core.internal.scanner.classpath.ResourceAndClassScanner;
 
 import com.oracle.svm.core.annotate.Alias;
@@ -21,6 +22,7 @@ public final class ScannerSubstitutions {
 
     @Alias
     private List<LoadableResource> resources = new ArrayList<>();
+
     @Alias
     private List<Class<?>> classes = new ArrayList<>();
 
@@ -29,10 +31,11 @@ public final class ScannerSubstitutions {
      * Replaces the original method that tries to detect migrations using reflection techniques that are not allowed
      * in native mode
      *
-     * @see org.flywaydb.core.internal.scanner.Scanner#Scanner(Collection, ClassLoader, Charset)
+     * @see org.flywaydb.core.internal.scanner.Scanner#Scanner(Class, Collection, ClassLoader, Charset)
      */
     @Substitute
-    public ScannerSubstitutions(Collection<Location> locations, ClassLoader classLoader, Charset encoding) {
+    public ScannerSubstitutions(Class<?> implementedInterface, Collection<Location> locations, ClassLoader classLoader,
+            Charset encoding, ResourceNameCache resourceNameCache) {
         ResourceAndClassScanner quarkusScanner = new QuarkusPathLocationScanner();
         resources.addAll(quarkusScanner.scanForResources());
         classes.addAll(quarkusScanner.scanForClasses());

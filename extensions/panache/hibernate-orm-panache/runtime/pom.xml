@@ -11,7 +11,7 @@
 
     <artifactId>quarkus-hibernate-orm-panache</artifactId>
     <name>Quarkus - Hibernate ORM with Panache - Runtime</name>
-
+    <description>Define your persistent model in Hibernate ORM with Panache</description>
     <dependencies>
         <dependency>
             <groupId>io.quarkus</groupId>
@@ -30,8 +30,13 @@
             <artifactId>quarkus-panache-common</artifactId>
         </dependency>
         <dependency>
-            <groupId>javax.json.bind</groupId>
-            <artifactId>javax.json.bind-api</artifactId>
+            <groupId>jakarta.json.bind</groupId>
+            <artifactId>jakarta.json.bind-api</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-jackson</artifactId>
             <optional>true</optional>
         </dependency>
     </dependencies>

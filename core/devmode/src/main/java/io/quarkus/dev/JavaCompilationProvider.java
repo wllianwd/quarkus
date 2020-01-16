@@ -8,7 +8,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.List;
+import java.util.HashSet;
 import java.util.Set;
 
 import javax.tools.Diagnostic;
@@ -28,7 +28,7 @@ public class JavaCompilationProvider implements CompilationProvider {
     // -g is used to make the java compiler generate all debugging info
     // -parameters is used to generate metadata for reflection on method parameters
     // this is useful when people using debuggers against their hot-reloaded app
-    private static final List<String> COMPILER_OPTIONS = Arrays.asList("-g", "-parameters");
+    private static final Set<String> COMPILER_OPTIONS = new HashSet<>(Arrays.asList("-g", "-parameters"));
 
     @Override
     public Set<String> handledExtensions() {
@@ -42,14 +42,18 @@ public class JavaCompilationProvider implements CompilationProvider {
             throw new RuntimeException("No system java compiler provided");
         }
         DiagnosticCollector<JavaFileObject> diagnostics = new DiagnosticCollector<>();
-        try (StandardJavaFileManager fileManager = compiler.getStandardFileManager(diagnostics, null, null);) {
+        try (StandardJavaFileManager fileManager = compiler.getStandardFileManager(diagnostics, null,
+                context.getSourceEncoding())) {
 
             fileManager.setLocation(StandardLocation.CLASS_PATH, context.getClasspath());
             fileManager.setLocation(StandardLocation.CLASS_OUTPUT, Collections.singleton(context.getOutputDirectory()));
 
+            CompilerFlags compilerFlags = new CompilerFlags(COMPILER_OPTIONS, context.getCompilerOptions(),
+                    context.getSourceJavaVersion(), context.getTargetJvmVersion());
+
             Iterable<? extends JavaFileObject> sources = fileManager.getJavaFileObjectsFromFiles(filesToCompile);
             JavaCompiler.CompilationTask task = compiler.getTask(null, fileManager, diagnostics,
-                    COMPILER_OPTIONS, null, sources);
+                    compilerFlags.toList(), null, sources);
 
             if (!task.call()) {
                 throw new RuntimeException("Compilation failed" + diagnostics.getDiagnostics());

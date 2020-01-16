@@ -1,8 +1,8 @@
 package io.quarkus.smallrye.opentracing.runtime;
 
 import java.util.Optional;
-import java.util.logging.Logger;
 
+import javax.enterprise.inject.spi.CDI;
 import javax.ws.rs.container.DynamicFeature;
 import javax.ws.rs.container.ResourceInfo;
 import javax.ws.rs.core.FeatureContext;
@@ -10,10 +10,11 @@ import javax.ws.rs.ext.Provider;
 
 import org.eclipse.microprofile.config.Config;
 import org.eclipse.microprofile.config.ConfigProvider;
+import org.jboss.logging.Logger;
 
+import io.opentracing.Tracer;
 import io.opentracing.contrib.jaxrs2.server.OperationNameProvider;
 import io.opentracing.contrib.jaxrs2.server.ServerTracingDynamicFeature;
-import io.opentracing.util.GlobalTracer;
 
 @Provider
 public class QuarkusSmallRyeTracingDynamicFeature implements DynamicFeature {
@@ -29,9 +30,10 @@ public class QuarkusSmallRyeTracingDynamicFeature implements DynamicFeature {
         Optional<String> operationNameProvider = config.getOptionalValue("mp.opentracing.server.operation-name-provider",
                 String.class);
 
-        ServerTracingDynamicFeature.Builder builder = new ServerTracingDynamicFeature.Builder(GlobalTracer.get())
-                .withOperationNameProvider(OperationNameProvider.ClassNameOperationName.newBuilder())
-                .withTraceSerialization(false);
+        ServerTracingDynamicFeature.Builder builder = new ServerTracingDynamicFeature.Builder(
+                CDI.current().select(Tracer.class).get())
+                        .withOperationNameProvider(OperationNameProvider.ClassNameOperationName.newBuilder())
+                        .withTraceSerialization(false);
         if (skipPattern.isPresent()) {
             builder.withSkipPattern(skipPattern.get());
         }
@@ -39,7 +41,7 @@ public class QuarkusSmallRyeTracingDynamicFeature implements DynamicFeature {
             if ("http-path".equalsIgnoreCase(operationNameProvider.get())) {
                 builder.withOperationNameProvider(OperationNameProvider.WildcardOperationName.newBuilder());
             } else if (!"class-method".equalsIgnoreCase(operationNameProvider.get())) {
-                logger.warning("Provided operation name does not match http-path or class-method. Using default class-method.");
+                logger.warn("Provided operation name does not match http-path or class-method. Using default class-method.");
             }
         }
         this.delegate = builder.build();

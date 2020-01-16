@@ -15,11 +15,18 @@ public class DataSourceBuildTimeConfig {
     public Optional<String> driver;
 
     /**
-     * Whether we want to use XA.
+     * Whether we want to use regular JDBC transactions, XA, or disable all transactional capabilities.
      * <p>
-     * If used, the driver has to support it.
+     * When enabling XA you will need a driver implementing {@link javax.sql.XADataSource}.
      */
-    @ConfigItem(defaultValue = "false")
-    public boolean xa;
+    @ConfigItem(defaultValue = "enabled")
+    public TransactionIntegration transactions;
+
+    /**
+     * Enable datasource metrics collection. If unspecified, collecting metrics will be enabled by default if the
+     * smallrye-metrics extension is active.
+     */
+    @ConfigItem
+    public Optional<Boolean> enableMetrics;
 
 }

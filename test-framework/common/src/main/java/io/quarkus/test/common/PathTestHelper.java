@@ -22,11 +22,23 @@ public final class PathTestHelper {
                 "bin" + File.separator + "main");
         // gradle
         TEST_TO_MAIN_DIR_FRAGMENTS.put(
+                "classes" + File.separator + "java" + File.separator + "native-test",
+                "classes" + File.separator + "java" + File.separator + "main");
+        TEST_TO_MAIN_DIR_FRAGMENTS.put(
                 "classes" + File.separator + "java" + File.separator + "test",
                 "classes" + File.separator + "java" + File.separator + "main");
         TEST_TO_MAIN_DIR_FRAGMENTS.put(
+                "classes" + File.separator + "kotlin" + File.separator + "native-test",
+                "classes" + File.separator + "kotlin" + File.separator + "main");
+        TEST_TO_MAIN_DIR_FRAGMENTS.put(
                 "classes" + File.separator + "kotlin" + File.separator + "test",
                 "classes" + File.separator + "kotlin" + File.separator + "main");
+        TEST_TO_MAIN_DIR_FRAGMENTS.put(
+                "classes" + File.separator + "scala" + File.separator + "native-test",
+                "classes" + File.separator + "scala" + File.separator + "main");
+        TEST_TO_MAIN_DIR_FRAGMENTS.put(
+                "classes" + File.separator + "scala" + File.separator + "test",
+                "classes" + File.separator + "scala" + File.separator + "main");
 
         // maven
         TEST_TO_MAIN_DIR_FRAGMENTS.put(
@@ -80,6 +92,9 @@ public final class PathTestHelper {
                         .append(testClassPath, 0, testClassPath.length() - "-tests.jar".length())
                         .append(".jar")
                         .toString());
+            } else if (testClassPath.contains("-rpkgtests")) {
+                // This is a third party test-jar transformed using rpkgtests-maven-plugin
+                return Paths.get(testClassPath.replace("-rpkgtests", ""));
             }
             return Paths.get(testClassPath);
         }

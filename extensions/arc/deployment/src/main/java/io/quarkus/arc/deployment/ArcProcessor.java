@@ -1,13 +1,16 @@
 package io.quarkus.arc.deployment;
 
+import static io.quarkus.deployment.annotations.ExecutionTime.RUNTIME_INIT;
 import static io.quarkus.deployment.annotations.ExecutionTime.STATIC_INIT;
 
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
@@ -32,6 +35,7 @@ import io.quarkus.arc.processor.BeanDefiningAnnotation;
 import io.quarkus.arc.processor.BeanInfo;
 import io.quarkus.arc.processor.BeanProcessor;
 import io.quarkus.arc.processor.BuiltinScope;
+import io.quarkus.arc.processor.BytecodeTransformer;
 import io.quarkus.arc.processor.ContextConfigurator;
 import io.quarkus.arc.processor.ContextRegistrar;
 import io.quarkus.arc.processor.ReflectionRegistration;
@@ -39,21 +43,26 @@ import io.quarkus.arc.processor.ResourceOutput;
 import io.quarkus.arc.runtime.AdditionalBean;
 import io.quarkus.arc.runtime.ArcRecorder;
 import io.quarkus.arc.runtime.BeanContainer;
+import io.quarkus.arc.runtime.LaunchModeProducer;
 import io.quarkus.arc.runtime.LifecycleEventRunner;
 import io.quarkus.deployment.Capabilities;
 import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.annotations.Record;
+import io.quarkus.deployment.builditem.AdditionalApplicationArchiveMarkerBuildItem;
 import io.quarkus.deployment.builditem.ApplicationArchivesBuildItem;
 import io.quarkus.deployment.builditem.ApplicationClassPredicateBuildItem;
+import io.quarkus.deployment.builditem.BytecodeTransformerBuildItem;
+import io.quarkus.deployment.builditem.CapabilityBuildItem;
+import io.quarkus.deployment.builditem.ExecutorBuildItem;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
 import io.quarkus.deployment.builditem.GeneratedClassBuildItem;
 import io.quarkus.deployment.builditem.GeneratedResourceBuildItem;
 import io.quarkus.deployment.builditem.ShutdownContextBuildItem;
 import io.quarkus.deployment.builditem.TestClassPredicateBuildItem;
-import io.quarkus.deployment.builditem.substrate.ReflectiveClassBuildItem;
-import io.quarkus.deployment.builditem.substrate.ReflectiveFieldBuildItem;
-import io.quarkus.deployment.builditem.substrate.ReflectiveMethodBuildItem;
+import io.quarkus.deployment.builditem.nativeimage.ReflectiveClassBuildItem;
+import io.quarkus.deployment.builditem.nativeimage.ReflectiveFieldBuildItem;
+import io.quarkus.deployment.builditem.nativeimage.ReflectiveMethodBuildItem;
 
 /**
  * This class contains build steps that trigger various phases of the bean processing.
@@ -75,7 +84,12 @@ public class ArcProcessor {
 
     static final DotName ADDITIONAL_BEAN = DotName.createSimple(AdditionalBean.class.getName());
 
-    // PHASE 1 - build BeanProcessor, register custom contexts 
+    @BuildStep
+    CapabilityBuildItem capability() {
+        return new CapabilityBuildItem(Capabilities.CDI_ARC);
+    }
+
+    // PHASE 1 - build BeanProcessor, register custom contexts
     @BuildStep
     public ContextRegistrationPhaseBuildItem initialize(
             ArcConfig arcConfig,
@@ -83,6 +97,7 @@ public class ArcProcessor {
             ApplicationArchivesBuildItem applicationArchivesBuildItem,
             List<AnnotationsTransformerBuildItem> annotationTransformers,
             List<InjectionPointTransformerBuildItem> injectionPointTransformers,
+            List<ObserverTransformerBuildItem> observerTransformers,
             List<InterceptorBindingRegistrarBuildItem> interceptorBindingRegistrarBuildItems,
             List<AdditionalStereotypeBuildItem> additionalStereotypeBuildItems,
             List<ApplicationClassPredicateBuildItem> applicationClassPredicates,
@@ -158,12 +173,16 @@ public class ArcProcessor {
         builder.addResourceAnnotations(
                 resourceAnnotations.stream().map(ResourceAnnotationBuildItem::getName).collect(Collectors.toList()));
         // register all annotation transformers
-        for (AnnotationsTransformerBuildItem transformerItem : annotationTransformers) {
-            builder.addAnnotationTransformer(transformerItem.getAnnotationsTransformer());
+        for (AnnotationsTransformerBuildItem transformer : annotationTransformers) {
+            builder.addAnnotationTransformer(transformer.getAnnotationsTransformer());
         }
         // register all injection point transformers
-        for (InjectionPointTransformerBuildItem transformerItem : injectionPointTransformers) {
-            builder.addInjectionPointTransformer(transformerItem.getInjectionPointsTransformer());
+        for (InjectionPointTransformerBuildItem transformer : injectionPointTransformers) {
+            builder.addInjectionPointTransformer(transformer.getInjectionPointsTransformer());
+        }
+        // register all observer transformers
+        for (ObserverTransformerBuildItem transformer : observerTransformers) {
+            builder.addObserverTransformer(transformer.getInstance());
         }
         // register additional interceptor bindings
         for (InterceptorBindingRegistrarBuildItem bindingRegistrar : interceptorBindingRegistrarBuildItems) {
@@ -212,6 +231,7 @@ public class ArcProcessor {
                 }
             });
         }
+        builder.setRemoveFinalFromProxyableMethods(arcConfig.removeFinalForProxyableMethods);
 
         BeanProcessor beanProcessor = builder.build();
         ContextRegistrar.RegistrationContext context = beanProcessor.registerCustomContexts();
@@ -237,7 +257,8 @@ public class ArcProcessor {
     // PHASE 3 - initialize and validate the bean deployment
     @BuildStep
     public ValidationPhaseBuildItem validate(BeanRegistrationPhaseBuildItem beanRegistrationPhase,
-            List<BeanConfiguratorBuildItem> beanConfigurators) {
+            List<BeanConfiguratorBuildItem> beanConfigurators,
+            BuildProducer<BytecodeTransformerBuildItem> bytecodeTransformer) {
 
         for (BeanConfiguratorBuildItem beanConfigurator : beanConfigurators) {
             for (BeanConfigurator<?> value : beanConfigurator.getValues()) {
@@ -246,14 +267,24 @@ public class ArcProcessor {
             }
         }
 
-        beanRegistrationPhase.getBeanProcessor().initialize();
+        beanRegistrationPhase.getBeanProcessor().initialize(new Consumer<BytecodeTransformer>() {
+            @Override
+            public void accept(BytecodeTransformer t) {
+                bytecodeTransformer.produce(new BytecodeTransformerBuildItem(t.getClassToTransform(), t.getVisitorFunction()));
+            }
+        });
         return new ValidationPhaseBuildItem(beanRegistrationPhase.getBeanProcessor().validate(),
                 beanRegistrationPhase.getBeanProcessor());
     }
 
+    @BuildStep
+    List<AdditionalApplicationArchiveMarkerBuildItem> marker() {
+        return Arrays.asList(new AdditionalApplicationArchiveMarkerBuildItem("META-INF/beans.xml"),
+                new AdditionalApplicationArchiveMarkerBuildItem("META-INF/services/javax.enterprise.inject.spi.Extension"));
+    }
+
     // PHASE 4 - generate resources and initialize the container
-    @BuildStep(providesCapabilities = Capabilities.CDI_ARC, applicationArchiveMarkers = { "META-INF/beans.xml",
-            "META-INF/services/javax.enterprise.inject.spi.Extension" })
+    @BuildStep
     @Record(STATIC_INIT)
     public BeanContainerBuildItem generateResources(ArcRecorder recorder, ShutdownContextBuildItem shutdown,
             ValidationPhaseBuildItem validationPhase,
@@ -297,6 +328,7 @@ public class ArcProcessor {
                 case SERVICE_PROVIDER:
                     generatedResource.produce(
                             new GeneratedResourceBuildItem("META-INF/services/" + resource.getName(), resource.getData()));
+                    break;
                 default:
                     break;
             }
@@ -318,6 +350,17 @@ public class ArcProcessor {
 
         return new BeanContainerBuildItem(beanContainer);
 
+    }
+
+    @BuildStep
+    @Record(value = RUNTIME_INIT)
+    void setupExecutor(ExecutorBuildItem executor, ArcRecorder recorder) {
+        recorder.initExecutor(executor.getExecutorProxy());
+    }
+
+    @BuildStep
+    AdditionalBeanBuildItem launchMode() {
+        return new AdditionalBeanBuildItem(LaunchModeProducer.class);
     }
 
     private abstract static class AbstractCompositeApplicationClassesPredicate<T> implements Predicate<T> {

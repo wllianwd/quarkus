@@ -81,7 +81,7 @@
         </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-elytron-security</artifactId>
+            <artifactId>quarkus-elytron-security-properties-file</artifactId>
         </dependency>
 
         <!-- JAX-RS -->
@@ -94,8 +94,8 @@
             <artifactId>quarkus-resteasy-jsonb</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.jboss.resteasy</groupId>
-            <artifactId>resteasy-jaxb-provider</artifactId>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-resteasy-jaxb</artifactId>
         </dependency>
         <dependency>
             <groupId>org.jboss.resteasy</groupId>
@@ -165,7 +165,7 @@
         </resources>
         <plugins>
             <plugin>
-                <groupId>${project.groupId}</groupId>
+                <groupId>io.quarkus</groupId>
                 <artifactId>quarkus-maven-plugin</artifactId>
                 <executions>
                     <execution>
@@ -229,8 +229,9 @@
                         </executions>
                     </plugin>
                     <plugin>
-                        <groupId>${project.groupId}</groupId>
+                        <groupId>io.quarkus</groupId>
                         <artifactId>quarkus-maven-plugin</artifactId>
+                        <version>${project.version}</version>
                         <executions>
                             <execution>
                                 <id>native-image</id>
@@ -241,10 +242,6 @@
                                     <addAllCharsets>true</addAllCharsets>
                                     <cleanupServer>true</cleanupServer>
                                     <enableHttpUrlHandler>true</enableHttpUrlHandler>
-                                    <!-- Requires Quarkus Graal fork to work, will fail otherwise
-                                      <enableRetainedHeapReporting>true</enableRetainedHeapReporting>
-                                      <enableCodeSizeReporting>true</enableCodeSizeReporting>
-                                    -->
                                     <graalvmHome>${graalvmHome}</graalvmHome>
                                 </configuration>
                             </execution>

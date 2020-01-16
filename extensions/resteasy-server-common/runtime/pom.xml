@@ -12,7 +12,7 @@
 
     <artifactId>quarkus-resteasy-server-common</artifactId>
     <name>Quarkus - RESTEasy - Server common - Runtime</name>
-
+    <description>RESTEasy Server common</description>
     <dependencies>
         <dependency>
             <groupId>io.quarkus</groupId>
@@ -27,12 +27,8 @@
             <artifactId>quarkus-resteasy-common</artifactId>
         </dependency>
         <dependency>
-            <groupId>javax.validation</groupId>
-            <artifactId>validation-api</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-jaxb</artifactId>
+            <groupId>jakarta.validation</groupId>
+            <artifactId>jakarta.validation-api</artifactId>
         </dependency>
     </dependencies>
 

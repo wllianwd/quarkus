@@ -51,7 +51,7 @@ If you have not done so on this machine, you need to:
  
 * Install Git and configure your GitHub access
 * Install Java SDK (OpenJDK recommended)
-* Install [GraalVM](http://www.graalvm.org/downloads/) (community edition is enough)
+* Install [GraalVM](https://quarkus.io/guides/building-native-image)
 * Install platform C developer tools:
     * Linux
         * Make sure headers are available on your system (you'll hit 'Basic header file missing (<zlib.h>)' error if they aren't).
@@ -85,9 +85,9 @@ Next navigate to _Java_ -> _Code Style_ -> _Organize Imports_. Click _Import_ an
 
 #### IDEA Setup
 
-Open the _Preferences_ window, navigate to _Plugins_ and install the [Eclipse Code Formatter Plugin](https://plugins.jetbrains.com/plugin/6546-eclipse-code-formatter).
+Open the _Preferences_ window (or _Settings_ depending on your edition) , navigate to _Plugins_ and install the [Eclipse Code Formatter Plugin](https://plugins.jetbrains.com/plugin/6546-eclipse-code-formatter) from the Marketplace.
 
-Restart you IDE, open the *Preferences* window again and navigate to _Other Settings_ -> _Eclipse Code Formatter_.
+Restart your IDE, open the *Preferences* (or *Settings*) window again and navigate to _Other Settings_ -> _Eclipse Code Formatter_.
 
 Select _Use the Eclipse Code Formatter_, then change the _Eclipse Java Formatter Config File_ to point to the
 `eclipse-format.xml` file in the `ide-config` directory. Make sure the _Optimize Imports_ box is ticked, and
@@ -109,6 +109,10 @@ cd quarkus
 
 The default build does not create native images, which is quite time consuming.
 
+Note that the full build with all tests is quite slow, you will usually want to build with `-DskipTests`. This will also
+skip creation of the integration-test runner jars. If you want to skip tests but still create the runners you can set
+`-DskipTests -Dquarkus.build.skip=false`
+
 You can build and test native images in the integration tests supporting it by using `./mvnw install -Dnative`.
 
 By default the build will use the native image server. This speeds up the build, but can cause problems due to the cache
@@ -118,3 +122,30 @@ not being invalidated correctly in some cases. To run a build with a new instanc
 ## The small print
 
 This project is an open source project, please act responsibly, be nice, polite and enjoy!
+
+## Frequently Asked Questions
+
+* IntelliJ fails to import Quarkus Maven project with `java.lang.OutOfMemoryError: GC overhead limit exceeded` 
+
+In IntelliJ IDEA (version older than `2019.2`) if you see problems in the Maven view claiming `java.lang.OutOfMemoryError: GC overhead limit exceeded` that means the project import failed.
+  
+To fix the issue, you need to update the Maven importing settings:  
+`Build, Execution, Deployment` > `Build Tools`> `Maven` > `Importing` > `VM options for importer`
+To import Quarkus you need to define the JVM Max Heap Size (E.g. `-Xmx1g`)
+
+**Note** As for now, we can't provide a unique Max Heap Size value. We have been reported to require from 768M to more than 3G to import Quarkus properly.
+
+* Build hangs with DevMojoIT running infinitely 
+```
+./mvnw clean install
+# Wait...
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 6.192 s - in io.quarkus.maven.it.GenerateConfigIT
+[INFO] Running io.quarkus.maven.it.DevMojoIT
+
+```
+DevMojoIT require a few minutes to run but anything more than that is not expected. Make sure that nothing is running on 8080.
+
+* The native integration test for my extension didn't run in the CI
+
+In the interest of speeding up CI, the native build stage `run_native_tests_stage` have been split into multiple steps. 
+This means that each new extension needs to be configured explicitly in `azure-pipelines.yml` to have it's integration tests run in native mode

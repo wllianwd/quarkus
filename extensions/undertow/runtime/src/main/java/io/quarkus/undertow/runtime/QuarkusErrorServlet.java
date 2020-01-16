@@ -27,7 +27,8 @@ public class QuarkusErrorServlet extends HttpServlet {
         if (errorMessage != null) {
             details = errorMessage;
         }
-        if (Boolean.parseBoolean(getInitParameter(SHOW_STACK)) && exception != null) {
+        final boolean showStack = Boolean.parseBoolean(getInitParameter(SHOW_STACK));
+        if (showStack && exception != null) {
             details = generateHeaderMessage(exception, uuid == null ? null : uuid.toString());
             stack = generateStackTrace(exception);
 
@@ -35,9 +36,24 @@ public class QuarkusErrorServlet extends HttpServlet {
             details += "Error id " + uuid;
         }
 
-        resp.setContentType("text/html");
-        resp.setCharacterEncoding(StandardCharsets.UTF_8.name());
-        resp.getWriter().write(new TemplateHtmlBuilder().error(details).stack(stack).toString());
+        String accept = req.getHeader("Accept");
+        if (accept != null && accept.contains("application/json")) {
+            resp.setContentType("application/json");
+            resp.setCharacterEncoding(StandardCharsets.UTF_8.name());
+            String escapedStack = stack.replace(System.lineSeparator(), "\\n").replace("\"", "\\\"");
+            StringBuilder jsonPayload = new StringBuilder("{\"details\":\"").append(details).append("\",\"stack\":\"")
+                    .append(escapedStack).append("\"}");
+            resp.getWriter().write(jsonPayload.toString());
+        } else {
+            //We default to HTML representation
+            resp.setContentType("text/html");
+            resp.setCharacterEncoding(StandardCharsets.UTF_8.name());
+            final TemplateHtmlBuilder htmlBuilder = new TemplateHtmlBuilder("Internal Server Error", details, details);
+            if (showStack && exception != null) {
+                htmlBuilder.stack(exception);
+            }
+            resp.getWriter().write(htmlBuilder.toString());
+        }
     }
 
     private static String generateStackTrace(final Throwable exception) {

@@ -70,6 +70,20 @@ public class HibernateValidatorFunctionalityTest {
     }
 
     @Test
+    public void testRestEndPointGenericMethodValidation() {
+        RestAssured.when()
+                .get("/hibernate-validator/test/rest-end-point-generic-method-validation/9999999/")
+                .then()
+                .statusCode(400)
+                .body(containsString("numeric value out of bounds"));
+
+        RestAssured.when()
+                .get("/hibernate-validator/test/rest-end-point-generic-method-validation/42/")
+                .then()
+                .body(is("42"));
+    }
+
+    @Test
     public void testNoProduces() {
         RestAssured.when()
                 .get("/hibernate-validator/test/no-produces/plop/")
@@ -86,6 +100,30 @@ public class HibernateValidatorFunctionalityTest {
 
         RestAssured.when()
                 .get("/hibernate-validator/test/injection")
+                .then()
+                .body(is(expected.toString()));
+    }
+
+    @Test
+    public void testInheritedImplementsConstraints() {
+        StringBuilder expected = new StringBuilder();
+        expected.append("passed").append("\n")
+                .append("failed: echoZipCode.arg0 (size must be between 5 and 5)");
+
+        RestAssured.when()
+                .get("/hibernate-validator/test/test-inherited-implements-constraints")
+                .then()
+                .body(is(expected.toString()));
+    }
+
+    @Test
+    public void testInheritedExtendsConstraints() {
+        StringBuilder expected = new StringBuilder();
+        expected.append("passed").append("\n");
+        expected.append("failed: greeting.arg0 (must not be null)");
+
+        RestAssured.when()
+                .get("/hibernate-validator/test/test-inherited-extends-constraints")
                 .then()
                 .body(is(expected.toString()));
     }

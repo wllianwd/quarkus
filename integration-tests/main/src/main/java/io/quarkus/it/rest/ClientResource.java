@@ -10,6 +10,7 @@ import javax.ws.rs.GET;
 import javax.ws.rs.Path;
 import javax.ws.rs.Produces;
 
+import org.eclipse.microprofile.config.ConfigProvider;
 import org.eclipse.microprofile.rest.client.RestClientBuilder;
 import org.eclipse.microprofile.rest.client.inject.RestClient;
 
@@ -26,11 +27,31 @@ public class ClientResource {
     @RestClient
     RestClientInterface restClientInterface;
 
+    @Inject
+    @RestClient
+    RestClientConfigKeyInterface restClientConfigKeyInterface;
+
+    @Inject
+    @RestClient
+    RestClientBaseUriConfigKeyInterface restClientBaseUriConfigKeyInterface;
+
+    @GET
+    @Path("/annotation/configKey")
+    public String configKey() {
+        return restClientConfigKeyInterface.get();
+    }
+
+    @GET
+    @Path("/annotation/baseUriConfigKey")
+    public String baseUriConfigKey() {
+        return restClientBaseUriConfigKeyInterface.get();
+    }
+
     @GET
     @Path("/manual")
     public String manual() throws Exception {
         ProgrammaticRestInterface iface = RestClientBuilder.newBuilder()
-                .baseUrl(new URL(System.getProperty("test.url")))
+                .baseUrl(new URL(ConfigProvider.getConfig().getValue("test.url", String.class)))
                 .build(ProgrammaticRestInterface.class);
         return iface.get();
     }
@@ -52,7 +73,7 @@ public class ClientResource {
     @Produces("application/json")
     public TestResource.MyData getDataManual() throws Exception {
         ProgrammaticRestInterface iface = RestClientBuilder.newBuilder()
-                .baseUrl(new URL(System.getProperty("test.url")))
+                .baseUrl(new URL(ConfigProvider.getConfig().getValue("test.url", String.class)))
                 .build(ProgrammaticRestInterface.class);
         return iface.getData();
     }
@@ -76,7 +97,7 @@ public class ClientResource {
     @Produces("application/json")
     public List<ComponentType> complexManual() throws Exception {
         ProgrammaticRestInterface iface = RestClientBuilder.newBuilder()
-                .baseUrl(new URL(System.getProperty("test.url")))
+                .baseUrl(new URL(ConfigProvider.getConfig().getValue("test.url", String.class)))
                 .build(ProgrammaticRestInterface.class);
         System.out.println(iface.complex());
         return iface.complex();
@@ -94,7 +115,7 @@ public class ClientResource {
     @Produces("application/json")
     public Map<String, String> getAllHeaders(String headerValue) throws Exception {
         ProgrammaticRestInterface client = RestClientBuilder.newBuilder()
-                .baseUrl(new URL(System.getProperty("test.url")))
+                .baseUrl(new URL(ConfigProvider.getConfig().getValue("test.url", String.class)))
                 .build(ProgrammaticRestInterface.class);
         return client.getAllHeaders();
     }

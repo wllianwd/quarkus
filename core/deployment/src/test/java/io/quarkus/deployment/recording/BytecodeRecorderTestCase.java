@@ -1,6 +1,12 @@
 package io.quarkus.deployment.recording;
 
-import java.io.IOException;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.net.URL;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -8,15 +14,19 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import io.quarkus.deployment.ClassOutput;
-import io.quarkus.gizmo.TestClassLoader;
+import io.quarkus.deployment.TestClassLoader;
+import io.quarkus.gizmo.ClassOutput;
+import io.quarkus.runtime.LaunchMode;
 import io.quarkus.runtime.RuntimeValue;
 import io.quarkus.runtime.StartupContext;
 import io.quarkus.runtime.StartupTask;
@@ -122,6 +132,21 @@ public class BytecodeRecorderTestCase {
     }
 
     @Test
+    public void testJavaBeanWithEmbeddedReturnValue() throws Exception {
+        runTest(generator -> {
+            TestRecorder recorder = generator.getRecordingProxy(TestRecorder.class);
+            TestJavaBean newBean = new TestJavaBean("A string", 99);
+            newBean.setSupplier(recorder.stringSupplier("Runtime String"));
+            recorder.bean(newBean);
+        }, new TestJavaBean("A string", 99, new Supplier<String>() {
+            @Override
+            public String get() {
+                return "Runtime String";
+            }
+        }));
+    }
+
+    @Test
     public void testLargeCollection() throws Exception {
 
         List<TestJavaBean> beans = new ArrayList<>();
@@ -133,6 +158,40 @@ public class BytecodeRecorderTestCase {
             TestRecorder recorder = generator.getRecordingProxy(TestRecorder.class);
             recorder.list(beans);
         }, beans);
+    }
+
+    @Test
+    public void testUnmodifiableMapWithinAMap() throws Exception {
+        Map<Integer, Map<Integer, TestJavaBean>> outerMap = new HashMap<>();
+        outerMap.put(1, Collections.unmodifiableMap(
+                Collections.singletonMap(1, new TestJavaBean())));
+
+        runTest(generator -> {
+            TestRecorder recorder = generator.getRecordingProxy(TestRecorder.class);
+            recorder.map(outerMap);
+        }, outerMap);
+    }
+
+    @Test
+    public void testUnmodifiableListWithinAMap() throws Exception {
+        Map<Integer, List<TestJavaBean>> map = new HashMap<>();
+        map.put(1, Collections.unmodifiableList(Collections.singletonList(new TestJavaBean())));
+
+        runTest(generator -> {
+            TestRecorder recorder = generator.getRecordingProxy(TestRecorder.class);
+            recorder.map(map);
+        }, map);
+    }
+
+    @Test
+    public void testUnmodifiableSetWithinAMap() throws Exception {
+        Map<Integer, Set<TestJavaBean>> map = new HashMap<>();
+        map.put(1, Collections.unmodifiableSet(Collections.singleton(new TestJavaBean())));
+
+        runTest(generator -> {
+            TestRecorder recorder = generator.getRecordingProxy(TestRecorder.class);
+            recorder.map(map);
+        }, map);
     }
 
     @Test
@@ -190,8 +249,37 @@ public class BytecodeRecorderTestCase {
         TestClassLoader tcl = new TestClassLoader(getClass().getClassLoader());
         BytecodeRecorderImpl generator = new BytecodeRecorderImpl(tcl, false, TEST_CLASS);
         TestRecorder recorder = generator.getRecordingProxy(TestRecorder.class);
-        Assert.assertNotNull(recorder.toString());
-        Assert.assertTrue(recorder.toString().contains("$$RecordingProxyProxy"));
+        assertNotNull(recorder.toString());
+        assertTrue(recorder.toString().contains("$$RecordingProxyProxy"));
+    }
+
+    @Test
+    public void testObjects() throws Exception {
+        Optional<String> quarkusOptional = Optional.of("quarkus");
+        runTest(generator -> {
+            TestRecorder recorder = generator.getRecordingProxy(TestRecorder.class);
+            recorder.object(quarkusOptional);
+        }, quarkusOptional);
+        Optional<?> emptyOptional = Optional.empty();
+        runTest(generator -> {
+            TestRecorder recorder = generator.getRecordingProxy(TestRecorder.class);
+            recorder.object(emptyOptional);
+        }, emptyOptional);
+        URL url = new URL("https://quarkus.io");
+        runTest(generator -> {
+            TestRecorder recorder = generator.getRecordingProxy(TestRecorder.class);
+            recorder.object(url);
+        }, url);
+        LaunchMode launchMode = LaunchMode.TEST;
+        runTest(generator -> {
+            TestRecorder recorder = generator.getRecordingProxy(TestRecorder.class);
+            recorder.object(launchMode);
+        }, launchMode);
+        Duration duration = Duration.ofSeconds(30);
+        runTest(generator -> {
+            TestRecorder recorder = generator.getRecordingProxy(TestRecorder.class);
+            recorder.object(duration);
+        }, duration);
     }
 
     void runTest(Consumer<BytecodeRecorderImpl> generator, Object... expected) throws Exception {
@@ -203,20 +291,20 @@ public class BytecodeRecorderTestCase {
 
         StartupTask task = (StartupTask) tcl.loadClass(TEST_CLASS).newInstance();
         task.deploy(new StartupContext());
-        Assert.assertEquals(expected.length, TestRecorder.RESULT.size());
+        assertEquals(expected.length, TestRecorder.RESULT.size());
         for (Object i : expected) {
             if (i.getClass().isArray()) {
                 if (i instanceof int[]) {
-                    Assert.assertArrayEquals((int[]) i, (int[]) TestRecorder.RESULT.poll());
+                    assertArrayEquals((int[]) i, (int[]) TestRecorder.RESULT.poll());
                 } else if (i instanceof double[]) {
-                    Assert.assertArrayEquals((double[]) i, (double[]) TestRecorder.RESULT.poll(), 0);
+                    assertArrayEquals((double[]) i, (double[]) TestRecorder.RESULT.poll(), 0);
                 } else if (i instanceof Object[]) {
-                    Assert.assertArrayEquals((Object[]) i, (Object[]) TestRecorder.RESULT.poll());
+                    assertArrayEquals((Object[]) i, (Object[]) TestRecorder.RESULT.poll());
                 } else {
                     throw new RuntimeException("not implemented");
                 }
             } else {
-                Assert.assertEquals(i, TestRecorder.RESULT.poll());
+                assertEquals(i, TestRecorder.RESULT.poll());
             }
         }
     }
@@ -229,13 +317,8 @@ public class BytecodeRecorderTestCase {
         }
 
         @Override
-        public void writeClass(boolean applicationClass, String className, byte[] data) throws IOException {
-            tcl.write(className, data);
-        }
-
-        @Override
-        public void writeResource(String name, byte[] data) throws IOException {
-            throw new UnsupportedOperationException();
+        public void write(String s, byte[] bytes) {
+            tcl.write(s, bytes);
         }
     }
 }

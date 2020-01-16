@@ -1,0 +1,10 @@
+---
+name: "SmallRye Reactive Messaging - AMQP Connector"
+metadata:
+  keywords:
+  - "amqp"
+  - "reactive-amqp"
+  guide: "https://quarkus.io/guides/amqp"
+  categories:
+  - "messaging"
+  status: "preview"

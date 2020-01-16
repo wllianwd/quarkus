@@ -12,15 +12,28 @@
 
     <artifactId>quarkus-resteasy</artifactId>
     <name>Quarkus - RESTEasy - Runtime</name>
+    <description>REST framework implementing JAX-RS and more</description>
 
     <dependencies>
         <dependency>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
             <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-undertow</artifactId>
+            <artifactId>quarkus-vertx-http</artifactId>
         </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-resteasy-server-common</artifactId>
+            <exclusions>
+                <exclusion>
+                    <!-- do not require this dependency -->
+                    <groupId>org.jboss.spec.javax.servlet</groupId>
+                    <artifactId>jboss-servlet-api_4.0_spec</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
     </dependencies>
 

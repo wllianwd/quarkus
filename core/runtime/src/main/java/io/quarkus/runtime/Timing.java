@@ -1,13 +1,16 @@
 package io.quarkus.runtime;
 
 import java.math.BigDecimal;
+import java.util.logging.Handler;
 
 import org.jboss.logging.Logger;
+
+import io.quarkus.runtime.logging.InitialConfigurator;
 
 /**
  * Class that is responsible for printing out timing results.
  * <p>
- * It is modified on substrate by {@link io.quarkus.runtime.graal.TimingReplacement}, in that mainStarted it rewritten to
+ * It is modified in native mode by {@link io.quarkus.runtime.graal.TimingReplacement}, in that mainStarted it rewritten to
  * actually update the start time.
  */
 public class Timing {
@@ -17,6 +20,8 @@ public class Timing {
     private static volatile long bootStopTime = -1;
 
     private static volatile String httpServerInfo = "";
+
+    private static final String UNSET_VALUE = "<<unset>>";
 
     public static void staticInitStarted() {
         if (bootStartTime < 0) {
@@ -41,7 +46,7 @@ public class Timing {
     }
 
     /**
-     * This method is replaced by substrate
+     * This method is replaced in native mode
      */
     public static void mainStarted() {
     }
@@ -50,22 +55,44 @@ public class Timing {
         bootStartTime = System.nanoTime();
     }
 
-    public static void printStartupTime(String version, String features) {
+    public static void printStartupTime(String name, String version, String quarkusVersion, String features, String profile,
+            boolean liveCoding) {
         final long bootTimeNanoSeconds = System.nanoTime() - bootStartTime;
         final Logger logger = Logger.getLogger("io.quarkus");
         //Use a BigDecimal so we can render in seconds with 3 digits precision, as requested:
         final BigDecimal secondsRepresentation = convertToBigDecimalSeconds(bootTimeNanoSeconds);
-        logger.infof("Quarkus %s started in %ss. %s", version, secondsRepresentation, httpServerInfo);
+        String safeAppName = (name == null || name.trim().isEmpty()) ? UNSET_VALUE : name;
+        String safeAppVersion = (version == null || version.trim().isEmpty()) ? UNSET_VALUE : version;
+        if (UNSET_VALUE.equals(safeAppName) || UNSET_VALUE.equals(safeAppVersion)) {
+            logger.infof("Quarkus %s started in %ss. %s", quarkusVersion, secondsRepresentation, httpServerInfo);
+        } else {
+            logger.infof("%s %s (running on Quarkus %s) started in %ss. %s", name, version, quarkusVersion,
+                    secondsRepresentation, httpServerInfo);
+        }
+        logger.infof("Profile %s activated. %s", profile, liveCoding ? "Live Coding activated." : "");
         logger.infof("Installed features: [%s]", features);
         bootStartTime = -1;
     }
 
-    public static void printStopTime() {
+    public static void printStopTime(String name) {
         final long stopTimeNanoSeconds = System.nanoTime() - bootStopTime;
         final Logger logger = Logger.getLogger("io.quarkus");
         final BigDecimal secondsRepresentation = convertToBigDecimalSeconds(stopTimeNanoSeconds);
-        logger.infof("Quarkus stopped in %ss", secondsRepresentation);
+        logger.infof("%s stopped in %ss",
+                (UNSET_VALUE.equals(name) || name == null || name.trim().isEmpty()) ? "Quarkus" : name,
+                secondsRepresentation);
         bootStopTime = -1;
+
+        /**
+         * We can safely close log handlers after stop time has been printed.
+         */
+        Handler[] handlers = InitialConfigurator.DELAYED_HANDLER.clearHandlers();
+        for (Handler handler : handlers) {
+            try {
+                handler.close();
+            } catch (Throwable ignored) {
+            }
+        }
     }
 
     public static BigDecimal convertToBigDecimalSeconds(final long timeNanoSeconds) {

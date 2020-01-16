@@ -9,7 +9,6 @@ import javax.json.Json;
 import javax.json.JsonArray;
 import javax.json.JsonNumber;
 import javax.json.JsonObject;
-import javax.json.JsonString;
 
 import org.eclipse.microprofile.jwt.Claims;
 import org.jose4j.jwt.JwtClaims;
@@ -17,7 +16,7 @@ import org.jose4j.jwt.consumer.InvalidJwtException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import io.quarkus.smallrye.jwt.runtime.auth.ElytronJwtCallerPrincipal;
+import io.quarkus.smallrye.jwt.runtime.auth.QuarkusJwtCallerPrincipal;
 
 public class JwtCallerPrincipalUnitTest {
     @Test
@@ -25,7 +24,7 @@ public class JwtCallerPrincipalUnitTest {
         InputStream is = getClass().getResourceAsStream("/Token1.json");
         JsonObject content = Json.createReader(is).readObject();
         JwtClaims jwtClaims = JwtClaims.parse(content.toString());
-        ElytronJwtCallerPrincipal principal = new ElytronJwtCallerPrincipal("testAllClaims", jwtClaims);
+        QuarkusJwtCallerPrincipal principal = new QuarkusJwtCallerPrincipal("testAllClaims", jwtClaims);
 
         String iss = principal.getIssuer();
         Assertions.assertEquals("https://server.example.com", iss);
@@ -62,8 +61,7 @@ public class JwtCallerPrincipalUnitTest {
         Assertions.assertEquals(Json.createValue(4.4), customDoubleArray.getJsonNumber(4));
 
         // "customString": "customStringValue",
-        JsonString customString = principal.getClaim("customString");
-        Assertions.assertEquals(Json.createValue("customStringValue"), customString);
+        Assertions.assertEquals("customStringValue", principal.getClaim("customString"));
         // "customInteger": 123456789,
         JsonNumber customInteger = principal.getClaim("customInteger");
         Assertions.assertEquals(Json.createValue(123456789), customInteger);
