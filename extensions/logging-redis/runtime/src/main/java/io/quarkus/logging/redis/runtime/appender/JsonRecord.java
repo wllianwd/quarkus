@@ -1,75 +1,39 @@
 package io.quarkus.logging.redis.runtime.appender;
 
 import java.util.List;
-import java.util.Map;
 
-import com.google.gson.annotations.SerializedName;
+import javax.json.bind.annotation.JsonbProperty;
 
+import io.quarkus.runtime.annotations.RegisterForReflection;
+
+@RegisterForReflection
 public class JsonRecord {
 
-    @SerializedName("@source")
+    @JsonbProperty("@source")
     public String source;
 
-    @SerializedName("@source_host")
+    @JsonbProperty("@source_host")
     public String source_host;
 
-    @SerializedName("@source_path")
+    @JsonbProperty("@source_path")
     public String source_path;
 
-    @SerializedName("@type")
+    @JsonbProperty("@type")
     public String type;
 
-    @SerializedName("@tags")
+    @JsonbProperty("@tags")
     public List<String> tags;
 
-    @SerializedName("@message")
+    @JsonbProperty("@message")
     public String message;
 
-    @SerializedName("@timestamp")
+    @JsonbProperty("@timestamp")
     public String timestamp;
 
-    @SerializedName("@fields")
-    public JsonRecord.Fields fields;
+    @JsonbProperty("@fields")
+    public JsonRecordFields fields;
 
     public JsonRecord() {
-    }
-
-    public static class Fields {
-
-        public String logger;
-
-        public String level;
-
-        public Integer level_value;
-
-        public String thread;
-
-        public String throwable;
-
-        public JsonRecord.Location location;
-
-        public Map<String, String> properties;
-
-        public Fields() {
-        }
-    }
-
-    public static class Location {
-
-        @SerializedName("class")
-        public String clazz;
-
-        public String method;
-
-        public String file;
-
-        public Integer line;
-
-        public String full_name;
-
-        public Location() {
-        }
-
     }
 
 }

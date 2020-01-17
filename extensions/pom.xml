@@ -134,10 +134,9 @@
         <!-- kogito -->
         <module>kogito</module>
 
-<<<<<<< HEAD
         <!-- Logging redis -->
         <module>logging-redis</module>
-=======
+
         <!-- vault -->
         <module>vault</module>
         <module>vertx-graphql</module>
@@ -149,7 +148,7 @@
         
         <!-- Templating -->
         <module>qute</module>
->>>>>>> upstream/master
+
     </modules>
 
     <!-- Unfortunately the config below introduces a build dependency on the maven plugin

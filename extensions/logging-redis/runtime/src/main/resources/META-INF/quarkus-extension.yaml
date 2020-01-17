@@ -1,0 +1,11 @@
+---
+name: "Logging Redis"
+metadata:
+  keywords:
+  - "logging"
+  - "redis"
+  - "formatter"
+  categories:
+  - "core"
+  status: "preview"
+  guide: "https://quarkus.io/guides/logging#redis-logging"

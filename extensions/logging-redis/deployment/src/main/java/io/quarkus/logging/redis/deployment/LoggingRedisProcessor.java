@@ -14,11 +14,11 @@ import io.quarkus.runtime.annotations.Recorder;
 @Recorder
 public final class LoggingRedisProcessor implements EmbeddedConfigurator {
 
-    @Record(ExecutionTime.RUNTIME_INIT)
     @BuildStep
+    @Record(ExecutionTime.RUNTIME_INIT)
     public void loggingRedisProcessorBuildStep(LoggingRedisRecorder recorder, LoggingRedisConfig config)
             throws NoSuchMethodException, InstantiationException,
-            IllegalAccessException, InvocationTargetException {
+            IllegalAccessException, InvocationTargetException, ClassNotFoundException {
         recorder.initializeLogging(config);
     }
 

@@ -16,7 +16,8 @@ public class LoggingRedisRecorder implements EmbeddedConfigurator {
     }
 
     public void initializeLogging(LoggingRedisConfig config)
-            throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {
+            throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException,
+            ClassNotFoundException {
         if (config.enable) {
             ArrayList<Handler> handlers = new ArrayList<>(1);
             handlers.add(new LoggingRedisHandler(config));

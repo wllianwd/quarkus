@@ -1,6 +1,5 @@
 package io.quarkus.logging.redis.runtime;
 
-import java.util.Optional;
 import java.util.logging.Level;
 
 import io.quarkus.runtime.annotations.ConfigItem;
@@ -11,7 +10,7 @@ import redis.clients.jedis.Protocol;
 /**
  * The Logstash logging redis configuration.
  */
-@ConfigRoot(phase = ConfigPhase.RUN_TIME)
+@ConfigRoot(phase = ConfigPhase.RUN_TIME, name = "log.redis")
 public class LoggingRedisConfig {
 
     private static final String UNSET = "unset";
@@ -73,8 +72,8 @@ public class LoggingRedisConfig {
     /**
      * Redis connection password, default is null
      */
-    @ConfigItem
-    public Optional<String> password;
+    @ConfigItem(defaultValue = UNSET)
+    public String password;
 
     /**
      * Redis database number, default is 0
@@ -92,6 +91,6 @@ public class LoggingRedisConfig {
      * Appender implementation of LoggingRedisAppender, default is JsonLoggingRedisAppender
      */
     @ConfigItem(defaultValue = "io.quarkus.logging.redis.runtime.appender.JsonLoggingRedisAppender")
-    public Class<?> appender;
+    public String appender;
 
 }

@@ -22,15 +22,15 @@ public class LoggingRedisHandler extends WriterHandler {
     private final LoggingRedisAppender appender;
 
     public LoggingRedisHandler(LoggingRedisConfig config)
-            throws NoSuchMethodException, IllegalAccessException, InvocationTargetException, InstantiationException {
+            throws NoSuchMethodException, IllegalAccessException, InvocationTargetException, InstantiationException,
+            ClassNotFoundException {
         this.key = config.key;
         this.minLevel = config.minLevel;
-        this.appender = (LoggingRedisAppender) config.appender.getDeclaredConstructor(LoggingRedisConfig.class)
+        this.appender = (LoggingRedisAppender) Class.forName(config.appender).getDeclaredConstructor(LoggingRedisConfig.class)
                 .newInstance(config);
         GenericObjectPoolConfig poolConfig = new GenericObjectPoolConfig();
         poolConfig.setTestOnBorrow(true);
-        pool = new JedisPool(poolConfig, config.host, config.port, config.timeout, config.password.orElse(null),
-                config.database);
+        pool = new JedisPool(poolConfig, config.host, config.port, config.timeout, config.password, config.database);
     }
 
     @Override
@@ -44,7 +44,5 @@ public class LoggingRedisHandler extends WriterHandler {
             }
         }
     }
-
-
 
 }

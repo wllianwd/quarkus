@@ -8,19 +8,19 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.Map;
 
+import javax.json.bind.Jsonb;
+import javax.json.bind.JsonbBuilder;
+import javax.json.bind.JsonbConfig;
+
 import org.jboss.logmanager.ExtLogRecord;
 
-import com.google.gson.Gson;
-
 import io.quarkus.logging.redis.runtime.LoggingRedisConfig;
-import io.quarkus.runtime.annotations.RegisterForReflection;
 
-@RegisterForReflection
 public class JsonLoggingRedisAppender implements LoggingRedisAppender {
 
-    private final Gson gson = new Gson();
-
     private final DateFormat df = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SZ");
+
+    private final Jsonb jsonb = JsonbBuilder.create(new JsonbConfig());
 
     private final String source;
 
@@ -46,7 +46,7 @@ public class JsonLoggingRedisAppender implements LoggingRedisAppender {
         jsonEvent.tags = Collections.singletonList(tags);
         jsonEvent.message = String.format(record.getMessage(), record.getParameters());
         jsonEvent.timestamp = this.df.format(new Date(record.getMillis()));
-        JsonRecord.Fields fields = new JsonRecord.Fields();
+        JsonRecordFields fields = new JsonRecordFields();
         fields.level = record.getLevel().toString();
         fields.level_value = record.getLevel().intValue();
         fields.logger = record.getLoggerName();
@@ -54,7 +54,7 @@ public class JsonLoggingRedisAppender implements LoggingRedisAppender {
         if (record.getThrown() != null) {
             fields.throwable = getStackTrace(record.getThrown());
         }
-        JsonRecord.Location location = new JsonRecord.Location();
+        JsonRecordLocation location = new JsonRecordLocation();
         location.clazz = record.getSourceClassName();
         location.method = record.getSourceMethodName();
         location.file = record.getSourceFileName();
@@ -66,7 +66,7 @@ public class JsonLoggingRedisAppender implements LoggingRedisAppender {
             fields.properties = propertyMap;
         }
         jsonEvent.fields = fields;
-        return this.gson.toJson(jsonEvent);
+        return this.jsonb.toJson(jsonEvent);
     }
 
     private String getStackTrace(final Throwable throwable) {
